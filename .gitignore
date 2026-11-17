@@ -1,0 +1,40 @@
+# Audio and other local data: symlinks to files that live outside the repo
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Script outputs (reproducible)
+analysis/out/
+
+.DS_Store
+
+# Local audio captures (BlackHole etc.); linked into data/sources/
+blackhole/
+
+# ---- player build (rules carried over from the original korre repository)
+build/
+cmake-build-debug/
+cmake-build-release/
+.idea
+*.d
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.so
+*.dylib
+*.dll
+*.mod
+*.smod
+*.lai
+*.la
+*.a
+*.lib
+*.exe
+*.out
+*.app
