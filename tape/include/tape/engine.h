@@ -63,6 +63,9 @@ struct settings
     int polarity = 0;
 
     std::uint32_t ingredients = all_ingredients;
+
+    /// Start bypassed (see engine::set_bypass).
+    bool bypass = false;
 };
 
 /// How far the output lags the input, in sample frames, and where the delay comes from.

@@ -526,7 +526,8 @@ engine::impl::impl(const profile& p, const settings& s)
     g_dropouts.configure(step, on(ingredient::dropouts));
     g_hiss.configure(step, on(ingredient::hiss));
     g_saturation.configure(step, on(ingredient::saturation));
-    g_wet.configure(step, true);
+    g_wet.configure(step, !s.bypass);
+    bypassed.store(s.bypass);
 }
 
 void engine::impl::reset() noexcept

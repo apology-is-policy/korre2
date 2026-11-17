@@ -743,7 +743,7 @@ The engine is `emulator.py` v0.4 in streaming form (details and the full table i
 - **The random signals have the profile's spectra.** Transport over 20 minutes, RMS per band (0.05–0.5,
   0.5–3, 3–12, 12–30, 30–45 Hz): table 16.0 / 23.0 / 5.95 / 3.19 / 3.76 µs, engine 16.4 / 21.6 / 5.99 / 3.17 /
   3.65 µs; lines at 1.66, 7.52, 30.11 and 43.56 Hz (table 1.65, 7.53, 30.10, 43.58). Jitter within 4% per
-  band, flicker at unit RMS, noise within 0.1 dB per octave above 90 Hz. Signals that should be independent
+  band, flicker at unit RMS, noise within 0.25 dB per octave from 45 Hz up (0.1 dB from 180 Hz up). Signals that should be independent
   are uncorrelated (|r| < 0.02) and Gaussian (kurtosis 2.98–3.04).
 - **A full engine render of Shallow measures like the tape** (`align.py` + `signature.py` on `B3cpp`):
   speed deviation within 0.001% in every band, timing within 0.35 µs per band, residual re signal

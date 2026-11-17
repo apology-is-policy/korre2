@@ -15,3 +15,4 @@ endfunction()
 
 korre_test(test_audio korre_audio)
 korre_test(test_tape korre_tape_internals)
+korre_test(test_playback korre_playback)

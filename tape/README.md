@@ -91,7 +91,7 @@ Result on Shallow (chrome profile) and I Miss You (metal profile), 60 s each at 
 | filter designs, engine against `streamref.py` | equal to 1e-16 (-318 dB) |
 | output against the Python chain with the engine's own control signals, for nine ingredient sets | -152 dB, the resolution of the 32-bit float output |
 | control signals with different ingredient sets | identical |
-| wobble, jitter, flicker and noise against the profile's tables | band levels within a few percent; noise within 0.1 dB above 90 Hz; mechanical lines at 1.66, 7.52 and 43.56 Hz (table: 1.65, 7.53, 43.58) |
+| wobble, jitter, flicker and noise against the profile's tables | band levels within a few percent; noise within 0.25 dB per octave from 45 Hz up (0.1 dB from 180 Hz up); mechanical lines at 1.66, 7.52 and 43.56 Hz (table: 1.65, 7.53, 43.58) |
 | a full render of Shallow through `align.py` and `signature.py`, against the tape | speed deviation within 0.001% in every band; timing jitter within 0.35 us per band; response within 0.4 dB below 60 Hz and 0.1 dB above; residual within 0.4 dB per octave |
 
 The last row is the same test the Python emulation has to pass before a blind pair is made from it.
