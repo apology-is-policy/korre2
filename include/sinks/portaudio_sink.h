@@ -1,6 +1,8 @@
 #pragma once
 
 #include <deque>
+#include <memory>
+#include <thread>
 #include <portaudio.h>
 
 #include "sinks/sink.h"

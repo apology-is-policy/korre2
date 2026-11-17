@@ -18,6 +18,8 @@
 #    define PRIx64 "I64x"
 #  endif
 
+#include <memory>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 
