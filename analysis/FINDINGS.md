@@ -731,3 +731,68 @@ timing L/R coherence matched; residual re signal within 0.6 dB per octave; respo
 level per octave within 0.1 dB for L+R and L−R. Profile: transport 204 µs RMS (mostly slow drift), jitter
 common 3.14 µs + per channel 1.81 µs, flicker 1.7–2.7% at 1–4 kHz and none above, no treble saturation
 stage. Listening set with blind pair: `out/listening/MB3/`.
+
+## 2026-11-17: the model in C++, and two things found while checking it
+
+### The tape engine (`tape/`) reproduces the model
+The engine is `emulator.py` v0.4 in streaming form (details and the full table in `tape/README.md`).
+`verify_engine.py` on Shallow / chrome B and on I Miss You / metal, 60 s each at 48 kHz:
+- **The arithmetic is exact.** With the wobble, jitter, flicker and noise the engine itself used
+  (`korre-render --trace`), the Python chain gives the engine's output to −152 dB, the resolution of its
+  32-bit float output, for every ingredient set tried. The two filter designs agree to 1e-16.
+- **The random signals have the profile's spectra.** Transport over 20 minutes, RMS per band (0.05–0.5,
+  0.5–3, 3–12, 12–30, 30–45 Hz): table 16.0 / 23.0 / 5.95 / 3.19 / 3.76 µs, engine 16.4 / 21.6 / 5.99 / 3.17 /
+  3.65 µs; lines at 1.66, 7.52, 30.11 and 43.56 Hz (table 1.65, 7.53, 30.10, 43.58). Jitter within 4% per
+  band, flicker at unit RMS, noise within 0.1 dB per octave above 90 Hz. Signals that should be independent
+  are uncorrelated (|r| < 0.02) and Gaussian (kurtosis 2.98–3.04).
+- **A full engine render of Shallow measures like the tape** (`align.py` + `signature.py` on `B3cpp`):
+  speed deviation within 0.001% in every band, timing within 0.35 µs per band, residual re signal
+  −26.2 / −21.7 / −14.6 / −9.0 / −3.9 dB (tape −26.1 / −21.3 / −14.3 / −8.7 / −3.9), response within 0.1 dB
+  above 60 Hz.
+- **Where it differs by design: the static response.** The model applies the measured table with one FFT
+  as long as the track. The table's fine ripple (24 points per octave of measurement noise) is energy up to
+  seconds before and after time zero; the engine's filter keeps 11.6 ms before and a third of a second
+  after. Against the whole-track response: −28 dB in 20–60 Hz, −36 dB in 60–200 Hz, −54 dB in 0.2–2 kHz,
+  below −68 dB above; −38.5 dB overall on Shallow. In the signature that is 0.3 dB at 30 Hz and 0.4 dB at
+  50 Hz on the right channel. A tape chain is causal, so the part before time zero was never physical.
+  (A first table in `verify_engine.py` put the transport's 0.05–0.5 Hz band at 20.9 µs "by the table"; that
+  was the script integrating a linear interpolation across the table's steep first points. Summing the
+  points gives 16.0, and a whole-run Python synthesis reads 15.2–16.5.)
+
+### The treble-saturation stage adds amplitude flicker in the mids that the tape does not have
+The first engine render showed more AM than the old Python render around 1–2 kHz, common to both channels.
+It is not the port: a fresh Python render with the current profile (`B3py4`) reads the same. The profile
+gained `saturation.hf` after the v0.3 render was made, and this is that stage.
+
+| AM % RMS at rates 3–6 / 6–12 / 12–24 / 24–48 / 48–96 / 96–192 Hz | 1 kHz octave | 2 kHz octave |
+|---|---|---|
+| tape | 0.12 / 0.15 / 0.20 / 0.29 / 0.36 / 0.41 | 0.18 / 0.24 / 0.33 / 0.50 / 0.57 / 0.60 |
+| Python v0.3 (no treble saturation) | 0.13 / 0.18 / 0.23 / 0.32 / 0.35 / 0.37 | 0.21 / 0.30 / 0.40 / 0.55 / 0.58 / 0.53 |
+| Python v0.4, current profile | 0.20 / 0.24 / 0.29 / 0.38 / 0.45 / 0.52 | 0.28 / 0.35 / 0.44 / 0.60 / 0.66 / 0.68 |
+| C++ engine, current profile | 0.21 / 0.24 / 0.29 / 0.38 / 0.46 / 0.53 | 0.29 / 0.35 / 0.46 / 0.59 / 0.67 / 0.68 |
+
+AM L/R coherence at 1 kHz, 3–6 Hz: tape 0.13, v0.3 0.10, v0.4 0.38, engine 0.39. The stage bends the whole
+pre-emphasised signal with one cubic, so loud treble also turns the mids down a little, in both channels
+at once; on the tape the loss stays in the treble. From 4 kHz up the three renders and the tape agree
+within 10%. The stage was fitted on the treble bands only (`satfit.py`), where it predicts well; a version
+that leaves the mids alone (the cubic on the treble band only, or a smaller shelf with a larger
+coefficient) is the thing to try. Size of the excess: 0.1–0.15% RMS, about 0.01 dB.
+
+### Correction: the metal profile held a 65.3 Hz "deck tone" that is a bass note
+`wmd6c_metalxr.json` listed a steady tone at 65.30 Hz, −63.6 / −64.0 dBFS, in phase in both channels.
+The engine check showed it as 7 dB of extra background in the 45–90 Hz octave. It is not on the tape:
+- In the four silences recorded between songs on the metal tape the level at 65.3 Hz is −89…−112 dBFS, at or
+  below the neighbouring frequencies. The 7.55 Hz capstan tone is in every one of them (−88 dBFS, 12 dB above
+  its neighbours).
+- Through the songs the level at 65.3 Hz runs from −42 to −94 dBFS with the music, as 62.3 and 68.3 Hz do.
+65.4 Hz is the note C2. `steady_tones()` takes the 10th percentile over 20 s segments, which removes a note
+one song holds; this one is common enough across side B's seven songs to survive, and in whole-side mode
+the source is not consulted. Side A does not show it.
+- **Fix:** `steady_tones()` now keeps a tone only if it is also there in the recorded silences, within 10 dB
+  of its level (`in_recorded_silence`). The chrome profiles' tones (7.55, 43.55, 50.00 Hz on side B; 7.5 Hz
+  on side A) pass; the metal keeps 7.55 Hz alone.
+- **The first metal listening set had the tone in its emulation** and is set aside as
+  `out/listening/MB3_INVALID_false_65Hz_tone/`. At −64 dBFS and 65 Hz it sat near the threshold of hearing
+  under music, but it was a difference the tape does not have. The set in `out/listening/MB3/` is rendered
+  again from the corrected profile with a new seed: speed deviation within 0.003% per band, timing within
+  7%, residual within 1 dB, response within 0.1 dB and 1°, level per octave within 0.1 dB.

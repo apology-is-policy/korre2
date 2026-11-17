@@ -135,7 +135,30 @@ def steady_tones(tid: str, fmin: float = 3.0, fmax: float = 130.0, rise_db: floa
         cross = (X[quiet, i, 0] * np.conj(X[quiet, i, 1])).sum()
         tones.append(dict(hz=float(f[i]), L_dbfs=float(10 * np.log10(lvl[0])), R_dbfs=float(10 * np.log10(lvl[1])),
                           phase_deg=float(np.degrees(np.angle(cross)))))
-    return tones
+    return [tone for tone in tones if in_recorded_silence(t.side, tone)]
+
+
+def in_recorded_silence(side: str, tone: dict, margin_db: float = 10.0) -> bool:
+    """True if the tone is also there in the silences recorded between songs.
+
+    A tone the deck adds does not stop when the music does. A bass note that several songs share can
+    survive the 10th percentile above and pass as steady (65.3 Hz, a C, did on side B of the metal tape:
+    FINDINGS 2026-11-17), but it is gone in the gaps. The gaps are only seconds long, so the frequency
+    resolution is coarse; the test is on level alone: the gap's level at the tone's frequency must come
+    within margin_db of the tone's. Without recorded gaps there is nothing to test against."""
+    sr = 3000
+    levels = []
+    for sd in NOISE_POOL.get(side, (side,)):
+        for a, b in recorded_gaps(sd):
+            g = decode(data_file(SIDE_FILES[sd]), a + 0.15, b - 0.15, sr=sr).astype(np.float64)
+            w = np.hanning(len(g))
+            ph = np.exp(-2j * np.pi * tone["hz"] * np.arange(len(g)) / sr)
+            amp2 = np.abs((g * (w * ph)[:, None]).sum(axis=0) / w.sum()) ** 2 * 2  # mean square of a sine there
+            levels.append(10 * np.log10(amp2 + 1e-30))
+    if not levels:
+        return True
+    found = np.median(levels, axis=0)  # per channel, over the gaps
+    return bool(np.mean(found) >= np.mean([tone["L_dbfs"], tone["R_dbfs"]]) - margin_db)
 
 
 def eq_magnitude_phase(x, y, sr, fh, hiss_psd, nper=1 << 16):
