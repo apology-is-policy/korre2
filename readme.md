@@ -14,7 +14,6 @@ https://github.com/BoosterOfOld/korre/assets/52963062/1f04e0a6-ac47-4655-a71f-26
 ## Features
 ### Implemented
 - Real-time spectrogram with [PFFFT](https://bitbucket.org/jpommier/pffft/src/master/) at its core
-- DSP: Impulse response convolution engine that uses the convolution routine from [Armadillo](https://arma.sourceforge.net)
 - High-quality audio output based on [Portaudio](https://www.portaudio.com)
 - Playlists
 - Play queue with Shuffle
@@ -59,11 +58,6 @@ cmake . -DWITH_OGG=OFF -DWITH_INSTALL_MANPAGES=OFF
 make
 make test
 sudo make install
-```
-
-### Install Armadillo
-```
-brew install armadillo
 ```
 
 ### Install Portaudio

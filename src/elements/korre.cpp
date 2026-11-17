@@ -51,26 +51,6 @@ void korre::load_audio(std::filesystem::path path)
     audio_selected = true;
 }
 
-void korre::load_ir(std::string path)
-{
-    ir_selected = false;
-    this->selected_ir = path;
-    dc = std::make_unique<dsp_convolver>(
-            [this]()->std::shared_ptr<wave_source>
-            {
-                return pl->ws;
-            },
-            [this](const std::shared_ptr<internal_signal>& is)->void
-            {
-                pl->ws->add_signal(is);
-            },
-            [this]()->void { convolver_enabled = false; }
-    );
-    dc->load(this->selected_ir.c_str());
-    ir_selected = true;
-    convolver_enabled = true;
-}
-
 void korre::main_loop()
 {
     while(!exit)
@@ -103,10 +83,6 @@ void korre::on_frame()
     {
         pl->on_frame();
     }
-    if (convolver_enabled)
-    {
-        dc->on_frame();
-    }
 }
 
 void korre::render_main_menu()
@@ -124,14 +100,6 @@ void korre::render_main_menu()
             if(ImGui::MenuItem("Exit  ", nullptr, nullptr))
             {
                 exit = true;
-            }
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Modules "))
-        {
-            if(ImGui::MenuItem("Convolver", nullptr, nullptr))
-            {
-                convolver_enabled = true;
             }
             ImGui::EndMenu();
         }
@@ -198,10 +166,6 @@ korre::korre()
             [this](auto && PH1)
             {
                 qu->enqueue_track_or_playlist(PH1);
-            },
-            [this](auto && PH1)
-            {
-                load_ir(std::forward<decltype(PH1)>(PH1));
             }
     );
     pl = std::make_unique<player>();

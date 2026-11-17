@@ -1,10 +1,17 @@
 #pragma once
 
-#include "internal_signal.h"
+#include <cfloat>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "decoders/flac_decode.h"
 #include "decoders/mp3_decode.h"
 
 //#include "dohm_signal_orig.hpp"
+
+extern void g_normalize_to_bit_depth(std::shared_ptr<std::vector<double>> signal, uint16_t bit_depth);
 
 typedef struct wav_file {
     unsigned char chunkId[4];

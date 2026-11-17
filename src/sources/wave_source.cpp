@@ -13,23 +13,8 @@ wave_source::~wave_source()
     delete w;
 }
 
-void wave_source::add_signal(std::shared_ptr<internal_signal> sig)
-{
-    iss.emplace_back(sig);
-}
-
-void wave_source::select_signal(int sn)
-{
-    selected_signal = sn;
-}
-
 std::tuple<double, double> wave_source::sample(size_t t)
 {
-    if (selected_signal >= 0)
-    {
-        return iss[selected_signal]->sample(t);
-    }
-
     if (w->wav_file.numChannels == 2)
     {
         return { (*w->l)[t], (*w->r)[t] };

@@ -1,5 +1,45 @@
 #include "sources/wave.h"
 
+#include <cmath>
+#include <cstring>
+#include <stdexcept>
+
+void g_normalize_to_bit_depth(std::shared_ptr<std::vector<double>> signal, uint16_t bit_depth)
+{
+double max = 0;
+double curr;
+double absc;
+for(auto i = 0; i < signal->size(); ++i)
+{
+    curr = (*signal)[i];
+    absc = abs(curr);
+    if ( absc > max )
+    {
+        max = absc;
+    }
+}
+
+double normal = ((pow(2,bit_depth) - 1) / max) / 2;
+
+double mn = DBL_MAX;
+double mx = DBL_MIN;
+
+for(auto i = 0; i < signal->size(); ++i)
+{
+    (*signal)[i] *= normal;
+
+    if ((*signal)[i] > mx)
+    {
+        mx = (*signal)[i];
+    }
+    if ((*signal)[i] < mn)
+    {
+        mn = (*signal)[i];
+    }
+}
+}
+
+
 void wave::swap_endian16(uint16_t val) {
     val = (val<<8) | (val>>8);
 }

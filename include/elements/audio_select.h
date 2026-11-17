@@ -15,7 +15,6 @@ private:
     std::filesystem::path selected_path;
 
     std::function<void(std::filesystem::path)> callback;
-    std::function<void(std::string)> ir_callback;
 
     void update_file_list();
 
@@ -25,8 +24,7 @@ private:
 
 public:
     explicit audio_select(
-            std::function<void(std::filesystem::path)> callback,
-            std::function<void(std::string)> ir_callback
+            std::function<void(std::filesystem::path)> callback
     );
 
     virtual ~audio_select();

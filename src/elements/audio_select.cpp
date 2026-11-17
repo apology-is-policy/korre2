@@ -22,12 +22,10 @@ void audio_select::update_file_list()
 }
 
 audio_select::audio_select(
-        std::function<void(std::filesystem::path)> callback,
-        std::function<void(std::string)> ir_callback
+        std::function<void(std::filesystem::path)> callback
 )
 {
     this->callback = std::move(callback);
-    this->ir_callback = std::move(ir_callback);
     update_file_list();
 }
 
@@ -109,14 +107,7 @@ void audio_select::render_content()
     ImGui::Text(""); ImGui::SameLine();
 
     ImGui::PushStyleColor(ImGuiCol_Text, (ImVec4)ImColor(255,255,255));
-    ImGui::Text(" ");ImGui::SameLine();
-    if (ImGui::Button(is_loading ? " ---- " : " LOAD AS IR "))
-    {
-        ir_callback(selected_path);
-    }
-
-    ImGui::SameLine(); ImGui::Text("   "); ImGui::SameLine();
-    ImGui::SameLine();
+    ImGui::Text("                ");ImGui::SameLine();
 
     if (ImGui::Button(is_loading ? " ---- " : " LOAD SELECTED AUDIO "))
     {

@@ -165,50 +165,9 @@ void player::render_content()
     ImGui::Text("╘═══════╡"); ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_FrameBg, (ImVec4) ImColor(60, 60, 60));
     ImGui::PushStyleColor(ImGuiCol_Text, (ImVec4) ImColor(255, 255, 104));
-    if(ImGui::RadioButton("Bypass", ws->selected_signal == -1))
-    {
-        ws->selected_signal = -1;
-    }; ImGui::SameLine();
+    ImGui::RadioButton("Bypass", true); ImGui::SameLine();
     ImGui::PopStyleColor(2);
     ImGui::Text("╞══╛");
-
-    if (!ws->iss.empty())
-    {
-        ImGui::SetCursorPos(ImVec2(-1,1));
-
-        static int ss = 0;
-        ss = 0;
-        for(auto sig : ws->iss)
-        {
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, (ImVec4) ImColor(60, 60, 60));
-            ImGui::Text(" ");
-            ImGui::SameLine();
-            ImGui::PushID(ss+ 1000);
-            if(ImGui::RadioButton(std::to_string(ss).c_str(), ws->selected_signal == ss))
-            {
-                ws->selected_signal = ss;
-            }
-            ImGui::PopID();
-            ImGui::PushStyleColor(ImGuiCol_Text, (ImVec4) ImColor(255, 255, 104));
-            ImGui::SameLine();
-            ImGui::Text("%s ", sig->name.c_str());
-            ImGui::SameLine();
-            ImGui::PopStyleColor();
-            ImGui::PushStyleColor(ImGuiCol_Text, (ImVec4) ImColor(255, 130, 130));
-            ImGui::PushID(ss);
-            if(ImGui::Button("✘"))
-            {
-                ws->selected_signal = -1;
-                ws->iss.erase(std::next(ws->iss.begin(), ss), std::next(ws->iss.begin(), ss+1));
-                ImGui::PopStyleColor(2);
-                ImGui::PopID();
-                break;
-            }
-            ImGui::PopID();
-            ImGui::PopStyleColor(2);
-            ++ss;
-        }
-    }
 
     ImGui::EndChild();
 

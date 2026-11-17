@@ -121,8 +121,6 @@ add_executable(kora
         src/sinks/sink.cpp
         include/sampler.h
         src/sampler.cpp
-        include/sources/internal_signal.h
-        src/sources/internal_signal.cpp
         include/sources/wave.h
         src/sources/wave.cpp
         include/sources/wave_source.h
@@ -133,8 +131,6 @@ add_executable(kora
         src/elements/meter.cpp
         src/elements/audio_select.cpp
         include/elements/audio_select.h
-        include/elements/dsp_convolver.h
-        src/elements/dsp_convolver.cpp
         include/elements/queue.h
         src/elements/queue.cpp
         include/elements/korre.h
@@ -155,20 +151,17 @@ include_directories(/opt/homebrew/include)
 #set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".so" ".dylib")
 find_library(l_portaudio NAMES portaudio)
 find_library(l_ncurses NAMES ncursesw)
-find_library(l_armadillo NAMES armadillo)
 find_library(l_flac NAMES flac)
 find_library(l_flacpp NAMES flac++)
 
 target_link_libraries(kora PUBLIC ${l_portaudio})
 target_link_libraries(kora PUBLIC ${l_ncurses})
-target_link_libraries(kora PUBLIC ${l_armadillo})
 target_link_libraries(kora PUBLIC imtui)
 target_link_libraries(kora PUBLIC ${l_flac})
 target_link_libraries(kora PUBLIC ${l_flacpp})
 
 message(MSG_PORTAUDIO="${l_portaudio}")
 message(MSG_NCURSES="${l_ncurses}")
-message(MSG_ARMADILLO="${l_armadillo}")
 message(MSG_FLAC="${l_flac}")
 message(MSG_FLAC="${l_flacpp}")
 
