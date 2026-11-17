@@ -12,3 +12,7 @@ merged into this repo's. Everything else is byte-for-byte the upstream tree at t
 Vendored third-party code inside it: `imtui/` (ggerganov/imtui with Dear ImGui, patched upstream in
 commits 0a0d89b, b4e1199 and 400a76b), `pffft/`, and `src/decoders/minimp3*.h`.
 Licence: GPL-3.0 (`LICENSE`).
+
+Since the import: minimp3 moved to `third_party/minimp3/`; `third_party/nlohmann/json.hpp` is the
+single-header release 3.12.0 of nlohmann/json (MIT), downloaded from its GitHub release page; the
+top-level `CMakeLists.txt` and `readme.md` were rewritten. The history shows each change.

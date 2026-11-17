@@ -57,6 +57,9 @@ def init_profile(tid: str, name: str, tape_sig: dict) -> dict:
                 songs=[dict(id=st["id"], title=st["title"], side=st["side"], gain_db=st["gain_db"],
                             delay_us=st["delay_us"])],
                 gain_db=st["gain_db"], delay_us=st["delay_us"],
+                # polarity of the capture against the song's source file, from the alignment; the
+                # WM-D6C chain inverts (FINDINGS), so this is -1 with a source of the right master
+                polarity=int(np.load(OUT / f"{st['id']}_aligned.npz")["polarity"]),
                 eq=dict(freqs=EQ_GRID, **{k: st["eq"][k] for k in ("L", "R", "phase_L", "phase_R")}),
                 hiss=st["hiss"], transport=dict(st["transport"], crossover_hz=45.0),
                 differential=st["differential"], dropouts=st["dropouts"])

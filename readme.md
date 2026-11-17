@@ -1,72 +1,66 @@
 # Korre
 
-Korre is a console-based audio player for Mac based on Portaudio.
+Korre is a console audio player for macOS that plays music through a measured model of a tape deck:
+a Sony WM-D6C and the cassettes recorded on it. It grew out of the original
+[korre](https://github.com/apology-is-policy/korre) player (demo of the original interface:
+https://github.com/BoosterOfOld/korre/assets/52963062/1f04e0a6-ac47-4655-a71f-26d2df28bef3).
 
-https://github.com/BoosterOfOld/korre/assets/52963062/1f04e0a6-ac47-4655-a71f-26d2df28bef3
+Three parts live in this repository:
 
-## Supported file types
+| part | where | state |
+|---|---|---|
+| **The measurements.** What the deck and each tape do to a digital source, measured from captures: response and phase, wow and flutter, fast timing jitter, amplitude flicker, noise, saturation. The result is a profile per deck and tape. | [`analysis/`](analysis/README.md), `profiles/` | working; the log is [`analysis/FINDINGS.md`](analysis/FINDINGS.md) |
+| **The tape engine.** A C++ library that plays audio through a profile in real time, and `korre-render`, which does it to a file. | [`tape/`](tape/README.md), `tools/` | working, checked against the measurements |
+| **The player.** The terminal interface, queue and playback. | `main.cpp`, `src/`, `include/` | the original player, being rewritten ([plan](docs/REWRITE_PLAN.md)); it does not use the engine yet |
 
-- __WAV__ - 16 and 24 bit PCM
-- __FLAC__ - Supported via the [xiph/flac](https://github.com/xiph/flac) library
-- __MP3__ - Supported via the [lieff/minimp3](https://github.com/lieff/minimp3) library
-- __TXT__ - Simple playlist (newline-separated paths)
+## Build
 
-## Features
-### Implemented
-- Real-time spectrogram with [PFFFT](https://bitbucket.org/jpommier/pffft/src/master/) at its core
-- High-quality audio output based on [Portaudio](https://www.portaudio.com)
-- Playlists
-- Play queue with Shuffle
-- Output device selection
-
-### Coming Soon
-- Customizable noise machine module (for when you need to focus and your colleagues won't shut their traps)
-- GPU convolution engine
-- DSP: Parametric equalizer
-- Background audio file decoding allowing you to play/seek a partially loaded file
-- Keyboard navigation
-- Recording
-- Saving recorded or DSP processed audio
-- Load files/playlist via console params
-- Better integration with Mac OS (open with)
-
-### Coming Later
-- More types of visualization
-- Custom skins
-
-## How to Build (Mac OS)
-
-### Build ncursesw
-
-The project uses my custom fork of [ggerganov/imtui](https://github.com/ggerganov/imtui) with an added support for UTF-8 (in order to display the box-drawing characters) and as such it needs ncursesw (ncurses with wide char support). Neither the ncurses lib bundled with Mac OS nor the Homebrew cask support that, so ncursesw must be built from source:
-
-Download [ncurses source code](https://ftp.gnu.org/gnu/ncurses/ncurses-6.4.tar.gz) and build using:
+Needs CMake 3.20+, a C++23 compiler (tested with Apple clang 21), and from Homebrew:
 
 ```
-./configure --prefix=/usr/local \\n  --without-cxx --without-cxx-binding --without-ada --without-progs --without-curses-h \\n  --with-shared --without-debug \\n  --enable-widec --enable-const --enable-ext-colors --enable-sigwinch --enable-wgetch-events \\n&& make
-```
-```
-sudo make install
+brew install flac portaudio ncurses
 ```
 
-### Build FLAC
-
 ```
-git clone https://github.com/xiph/flac.git
-cd flac
-cmake . -DWITH_OGG=OFF -DWITH_INSTALL_MANPAGES=OFF
-make
-make test
-sudo make install
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build        # the tests
 ```
 
-### Install Portaudio
+`-DKORRE_BUILD_PLAYER=OFF` builds only the libraries, `korre-render` and the tests (no PortAudio or
+ncurses needed). `-DKORRE_SANITIZE=address` or `=thread` gives a sanitizer build; use a separate build
+directory for it.
+
+## Play a file through a tape
+
 ```
-brew install portaudio
+build/bin/korre-render song.flac song_on_tape.flac --profile profiles/wmd6c_xlii_sideB.json
 ```
 
-### Build
+| profile | deck and tape |
+|---|---|
+| `wmd6c_xlii_sideB.json` | WM-D6C, chrome (type II) cassette, side B; captured from the line output |
+| `wmd6c_xlii_sideA.json` | the same cassette, side A |
+| `wmd6c_metalxr.json` | WM-D6C, Sony Metal XR; captured from the headphone output into headphones |
+
+`korre-render --help` lists the options: the random seed, which parts of the model to apply, how hard
+the tape is driven, output level and format. The output has the level of a real capture, which sits
+about 7 dB below the source.
+
+## The player
+
 ```
-cmake .
-make
+build/bin/kora
 ```
+
+Plays WAV (16 and 24 bit), FLAC and MP3 files and plain-text playlists (one path per line) through
+PortAudio, with a play queue, shuffle, output device selection and a spectrum display.
+
+## Third-party code
+
+In the repository: [imtui](https://github.com/ggerganov/imtui) with Dear ImGui (patched for UTF-8
+box-drawing characters), [pffft](https://bitbucket.org/jpommier/pffft/), [minimp3](https://github.com/lieff/minimp3)
+and [nlohmann/json](https://github.com/nlohmann/json). Linked: [FLAC](https://github.com/xiph/flac),
+[PortAudio](https://www.portaudio.com), ncurses.
+
+Licence: GPL-3.0 (`LICENSE`). Where the player's code came from: [`docs/PROVENANCE.md`](docs/PROVENANCE.md).

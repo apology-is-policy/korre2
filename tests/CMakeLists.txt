@@ -5,7 +5,8 @@ set(KORRE_FIXTURES ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
 function(korre_test name)
     add_executable(${name} ${name}.cpp)
     target_link_libraries(${name} PRIVATE korre_strict_warnings ${ARGN})
-    target_compile_definitions(${name} PRIVATE KORRE_FIXTURES="${KORRE_FIXTURES}")
+    target_compile_definitions(${name} PRIVATE KORRE_FIXTURES="${KORRE_FIXTURES}"
+            KORRE_PROFILES="${CMAKE_SOURCE_DIR}/profiles")
     add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
     # A sanitizer finding fails the test instead of only being printed.
     set_tests_properties(${name} PROPERTIES ENVIRONMENT
@@ -13,3 +14,4 @@ function(korre_test name)
 endfunction()
 
 korre_test(test_audio korre_audio)
+korre_test(test_tape korre_tape_internals)

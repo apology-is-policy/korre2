@@ -52,6 +52,8 @@ find_path(FLAC_INCLUDE_DIR NAMES FLAC/stream_decoder.h REQUIRED)
 # ---- libraries --------------------------------------------------------------------------------
 
 add_subdirectory(audio)   # reading and writing audio files
+add_subdirectory(tape)    # the tape engine: applies a measured profile to audio
+add_subdirectory(tools)   # korre-render: a file through a profile, offline
 
 if (KORRE_BUILD_PLAYER)
     include(cmake/player.cmake)
