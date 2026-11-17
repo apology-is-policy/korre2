@@ -29,7 +29,7 @@ playback::~playback()
 
 // ------------------------------------------------------------------------------------ the track
 
-std::expected<void, std::string> playback::load(const std::filesystem::path& path)
+std::expected<void, std::string> playback::load(const std::filesystem::path& path, double gain)
 {
     auto reader = open_audio(path);
     if (!reader)
@@ -62,6 +62,7 @@ std::expected<void, std::string> playback::load(const std::filesystem::path& pat
     {
         const std::lock_guard lock(source_mutex_);
         reader_ = std::move(*reader);
+        track_gain_ = static_cast<float>(gain);
         if (engine)
         {
             engine_ = std::move(engine);
@@ -96,6 +97,10 @@ void playback::unload()
 
 std::string playback::warning()
 {
+    if (!has_warning_.load(std::memory_order_relaxed))
+    {
+        return {}; // the usual case, answered without waiting for the decoder
+    }
     const std::lock_guard lock(source_mutex_);
     return reader_ ? std::string(reader_->warning()) : std::string();
 }
@@ -164,6 +169,7 @@ void playback::restart_from(std::uint64_t frame)
     }
     start_position_ = frame;
     fed_ = emitted_ = 0;
+    has_warning_.store(reader_ && !reader_->warning().empty());
     reader_ended_ = false;
     done_ = false;
     pending_position_.store(frame);
@@ -466,27 +472,36 @@ void playback::render(std::span<float> out) noexcept
 
 void playback::decode_loop(const std::stop_token& stop)
 {
-    std::unique_lock lock(source_mutex_);
     while (!stop.stop_requested())
     {
         bool produced = false;
-        kick_ = false;
-        if (reader_ && !done_ && queue_.size() < target_chunks_)
         {
-            if (chunk* c = queue_.back())
+            std::unique_lock lock(source_mutex_);
+            kick_ = false;
+            if (reader_ && !done_ && queue_.size() < target_chunks_)
             {
-                if (decode_chunk(*c))
+                if (chunk* c = queue_.back())
                 {
-                    queue_.push();
+                    if (decode_chunk(*c))
+                    {
+                        queue_.push();
+                    }
+                    produced = true;
                 }
-                produced = true;
+            }
+            if (!produced)
+            {
+                // Nothing to do: the queue is full enough or there is no track. Sleep until a load or
+                // a seek wakes this thread, or a couple of milliseconds pass and the queue has drained.
+                wake_.wait_for(lock, stop, std::chrono::milliseconds(2), [this] { return kick_; });
             }
         }
-        if (!produced)
+        // The lock is held for one chunk at a time and given up in between, so the interface never
+        // waits for more than one chunk's work, however far behind the decoder is. (A mutex is not a
+        // queue: without the yield this thread could take the lock again before a waiting one wakes.)
+        if (produced)
         {
-            // Nothing to do: the queue is full enough or there is no track. Sleep until a load or a
-            // seek wakes this thread, or a couple of milliseconds pass and the queue has drained a bit.
-            wake_.wait_for(lock, stop, std::chrono::milliseconds(2), [this] { return kick_; });
+            std::this_thread::yield();
         }
     }
 }
@@ -502,12 +517,23 @@ bool playback::decode_chunk(chunk& c)
     {
         got = reader_->read(std::span<float>(block, 2 * chunk_frames));
         fed_ += got;
+        if (!reader_->warning().empty())
+        {
+            has_warning_.store(true, std::memory_order_relaxed);
+        }
         if (got < chunk_frames)
         {
             reader_ended_ = true;
         }
     }
     std::fill(block + 2 * got, block + 2 * chunk_frames, 0.0f);
+    if (track_gain_ != 1.0f)
+    {
+        for (std::size_t i = 0; i < 2 * got; ++i)
+        {
+            block[i] *= track_gain_;
+        }
+    }
 
     std::size_t available = got;
     if (engine_)

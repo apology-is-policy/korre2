@@ -11,7 +11,7 @@ Three parts live in this repository:
 |---|---|---|
 | **The measurements.** What the deck and each tape do to a digital source, measured from captures: response and phase, wow and flutter, fast timing jitter, amplitude flicker, noise, saturation. The result is a profile per deck and tape. | [`analysis/`](analysis/README.md), `profiles/` | working; the log is [`analysis/FINDINGS.md`](analysis/FINDINGS.md) |
 | **The tape engine.** A C++ library that plays audio through a profile in real time, and `korre-render`, which does it to a file. | [`tape/`](tape/README.md), `tools/` | working, checked against the measurements |
-| **The player.** The terminal interface, queue and playback. | `main.cpp`, `src/`, `include/` | the original player, being rewritten ([plan](docs/REWRITE_PLAN.md)); it does not use the engine yet |
+| **The player.** `kora`: the terminal interface of the original korre on a new playback core, with the tape engine in the path. | [`player/`](player/README.md), [`playback/`](playback/README.md) | rewritten and tested without a sound card; see [the plan](docs/REWRITE_PLAN.md) for what is left |
 
 ## Build
 
@@ -50,11 +50,14 @@ about 7 dB below the source.
 ## The player
 
 ```
-build/bin/kora
+build/bin/kora --profile wmd6c_xlii_sideB song.flac another.mp3
 ```
 
-Plays WAV (16 and 24 bit), FLAC and MP3 files and plain-text playlists (one path per line) through
-PortAudio, with a play queue, shuffle, output device selection and a spectrum display.
+Plays WAV, FLAC and MP3 files and plain-text playlists (one path per line) through PortAudio, with a
+play queue, shuffle, output device selection and a spectrum display. The tape controls are in the
+DSP panel of the player window: which profile is in the deck, a switch for each part of the model,
+and Bypass for comparing with the file as it is. `kora --help` lists the options;
+[`player/README.md`](player/README.md) describes the controls.
 
 ## Third-party code
 

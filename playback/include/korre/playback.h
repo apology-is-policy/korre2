@@ -47,8 +47,8 @@ public:
     // ---- the track
 
     /// Opens a file and makes it the current track, paused at its start. On failure the current
-    /// track stays as it was.
-    std::expected<void, std::string> load(const std::filesystem::path& path);
+    /// track stays as it was. `gain` scales the file before anything else (for "normalize").
+    std::expected<void, std::string> load(const std::filesystem::path& path, double gain = 1.0);
     void unload();
     bool has_track() const noexcept { return has_track_; }
     const audio_info& info() const noexcept { return info_; }
@@ -143,6 +143,7 @@ private:
     // ---- shared by the caller's thread and the decoder thread, under the mutex
     std::mutex source_mutex_;
     std::unique_ptr<audio_reader> reader_;
+    float track_gain_ = 1.0f;
     std::unique_ptr<tape::engine> engine_;
     double engine_rate_ = 0;
     std::uint64_t start_position_ = 0; ///< frame the current run of decoding started at (the last seek)
@@ -162,6 +163,7 @@ private:
     std::atomic<std::uint32_t> heard_epoch_{0}; ///< epoch of the audio last played
     std::atomic<bool> playing_{false};
     std::atomic<bool> finished_{false};
+    std::atomic<bool> has_warning_{false}; ///< the decoder has something to say (see warning())
     std::atomic<std::uint64_t> position_{0};
     std::atomic<std::uint64_t> pending_position_{0}; ///< where a seek went, until its audio is heard
     std::atomic<float> gain_{1.0f};

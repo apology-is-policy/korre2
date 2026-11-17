@@ -1,6 +1,8 @@
 #include "korre/audio_file.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 
@@ -75,6 +77,25 @@ std::expected<audio_clip, std::string> load_audio(const std::filesystem::path& p
     clip.info.frames = clip.frames(); // what was really there
     clip.warning = (*reader)->warning();
     return clip;
+}
+
+std::expected<float, std::string> measure_peak(const std::filesystem::path& path)
+{
+    auto reader = open_audio(path);
+    if (!reader)
+    {
+        return std::unexpected(reader.error());
+    }
+    float peak = 0.0f;
+    std::vector<float> block(2 * 16384);
+    while (const std::size_t got = (*reader)->read(block))
+    {
+        for (std::size_t i = 0; i < 2 * got; ++i)
+        {
+            peak = std::max(peak, std::fabs(block[i]));
+        }
+    }
+    return peak;
 }
 
 } // namespace korre

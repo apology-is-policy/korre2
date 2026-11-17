@@ -24,11 +24,11 @@ const std::filesystem::path fixtures = KORRE_FIXTURES;
 const std::filesystem::path profiles = KORRE_PROFILES;
 
 /// Plays the sound card: pulls until `frames` frames of real audio have come out (the player hands
-/// out silence while its decoder has nothing ready), the track ends, or two seconds pass.
+/// out silence while its decoder has nothing ready), the track ends, or twenty seconds pass.
 std::vector<float> collect(playback& p, manual_output& out, std::size_t frames)
 {
     std::vector<float> got;
-    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    const auto deadline = std::chrono::steady_clock::now() + 20s; // generous: sanitizer builds are slow
     while (got.size() < 2 * frames && std::chrono::steady_clock::now() < deadline)
     {
         const std::size_t want = std::min<std::size_t>(256, frames - got.size() / 2);
@@ -358,6 +358,68 @@ void test_threads()
     CHECK(pulled.load() > 0);
 }
 
+void test_interface_never_waits_long()
+{
+    // The decoder thread works under a lock the interface also needs (to seek, to switch the tape).
+    // It must give the lock up between chunks: while it is far behind, as here with a sound card that
+    // takes audio as fast as it comes, the interface's calls still return at once.
+    const auto path = std::filesystem::temp_directory_path() / "korre_test_long.wav";
+    {
+        std::vector<float> noise(2 * 44100 * 120); // two minutes
+        std::uint32_t r = 1;
+        for (float& v : noise)
+        {
+            r = r * 1664525u + 1013904223u;
+            v = static_cast<float>(static_cast<std::int32_t>(r)) / 4294967296.0f;
+        }
+        CHECK(save_wav(path, noise, 44100, sample_format::pcm16).has_value());
+    }
+
+    manual_output out;
+    playback p(out);
+    CHECK(p.set_profile(profiles / "wmd6c_xlii_sideB.json").has_value());
+    CHECK(p.load(path).has_value());
+    CHECK(p.play().has_value());
+
+    std::atomic<bool> stop{false};
+    std::thread card([&] {
+        while (!stop.load())
+        {
+            out.pull(256); // no pause: the queue never fills, the decoder never rests
+        }
+    });
+
+    double longest_ms = 0;
+    const auto timed = [&longest_ms](auto&& call) {
+        const auto start = std::chrono::steady_clock::now();
+        call();
+        longest_ms = std::max(longest_ms, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    };
+    const auto until = std::chrono::steady_clock::now() + 3s;
+    int calls = 0;
+    while (std::chrono::steady_clock::now() < until && p.playing())
+    {
+        timed([&] { p.set_bypass(calls % 2 == 0); });
+        timed([&] { p.set_ingredients(static_cast<std::uint32_t>(calls) & 0xFF); });
+        timed([&] { (void)p.warning(); });
+        if (calls % 20 == 0)
+        {
+            timed([&] { p.seek(static_cast<std::uint64_t>(calls) * 1000); });
+        }
+        ++calls;
+        std::this_thread::sleep_for(1ms);
+    }
+    stop.store(true);
+    card.join();
+    // With the lock kept while the decoder is behind, the first call waits for the whole track to be
+    // decoded: seconds here, and only two or three rounds fit. The margins below are wide because
+    // sanitizer builds are slow; the failure they guard against is far outside them.
+    CHECK_MSG(calls > 20, std::to_string(calls) + " rounds of calls");
+    CHECK_MSG(longest_ms < 1000.0, "longest wait for the decoder: " + std::to_string(longest_ms) + " ms");
+    p.unload();
+    std::filesystem::remove(path);
+}
+
 } // namespace
 
 int main()
@@ -366,5 +428,6 @@ int main()
     test_clipping();
     test_tape();
     test_threads();
+    test_interface_never_waits_long();
     return check::result();
 }

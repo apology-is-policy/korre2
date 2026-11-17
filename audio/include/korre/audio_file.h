@@ -66,6 +66,9 @@ struct audio_clip
 
 std::expected<audio_clip, std::string> load_audio(const std::filesystem::path& path);
 
+/// The largest sample in a file (1.0 is full scale), found by decoding it once without keeping it.
+std::expected<float, std::string> measure_peak(const std::filesystem::path& path);
+
 enum class sample_format { pcm16, pcm24, float32 };
 
 /// Writes interleaved stereo samples. Integer formats are rounded and clipped at full scale, without

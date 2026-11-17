@@ -4,12 +4,14 @@
 // in a test with no sound card: `manual_output` hands the audio to whoever asks for it.
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <expected>
 #include <functional>
 #include <mutex>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace korre
@@ -72,6 +74,48 @@ private:
     std::atomic<bool> open_{false};
     double sample_rate_ = 0;
     render_fn render_;
+};
+
+/// An output that plays to nowhere at the real pace: a thread of its own asks for audio the way a
+/// sound card would. For running the player without a sound device (kora --device none).
+class silent_output final : public audio_output
+{
+public:
+    ~silent_output() override { close(); }
+
+    std::expected<void, std::string> open(double sample_rate, render_fn render) override
+    {
+        close();
+        open_.store(true);
+        thread_ = std::jthread([render = std::move(render), sample_rate](const std::stop_token& stop) {
+            constexpr std::size_t frames = 256;
+            std::vector<float> buffer(2 * frames);
+            const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(static_cast<double>(frames) / sample_rate));
+            auto due = std::chrono::steady_clock::now();
+            while (!stop.stop_requested())
+            {
+                render(buffer);
+                due += period;
+                std::this_thread::sleep_until(due);
+            }
+        });
+        return {};
+    }
+    void close() override
+    {
+        if (thread_.joinable())
+        {
+            thread_.request_stop();
+            thread_.join();
+        }
+        open_.store(false);
+    }
+    bool is_open() const noexcept override { return open_.load(); }
+
+private:
+    std::atomic<bool> open_{false};
+    std::jthread thread_;
 };
 
 } // namespace korre
