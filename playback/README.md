@@ -21,8 +21,10 @@ spectrum samples   <------------------ lock-free queue <----  the samples just p
 - **The decoder thread stays about 150 ms ahead.** It reads the file in pieces (`audio/`), so a track
   starts at once and a long file never has to fit in memory. The original decoded the whole file first.
 - **The decoder gives its lock up after every chunk.** It shares the file and the engine with the
-  interface under a mutex. Holding it only for one chunk's work (a fraction of a millisecond) means a
-  seek or a switch never waits, however far behind the decoder is.
+  interface under a mutex. Holding it only for one chunk's work means a seek or a switch does not
+  wait for the decoder's backlog. Measured with the decoder two minutes behind: the longest wait for
+  a call from the interface is 3 to 12 ms (a chunk in which the engine refills its noise blocks, or
+  the seek's own work); with the lock kept while there is work, as the loop was first written, 5 s.
 - **A seek is one atomic increment.** Every chunk in the queue carries the position in the track of
   its first frame and an epoch number. Seeking raises the epoch; the audio thread drops chunks from
   an older epoch as it meets them. No thread waits for another, and the position shown is always
