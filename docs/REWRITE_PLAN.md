@@ -16,8 +16,10 @@ tape profile (`profiles/*.json`), keeping the patched imtui interface and its lo
   real-time capable; nothing needs more than a few milliseconds of look-ahead.
 
 ## Stages
-0. **Baseline.** Make the import build with the smallest possible change (the missing include, whatever
-   else today's compiler rejects), nothing behavioural. Record what was needed.
+0. **Baseline. Done** (commit "Make the imported player compile on a current toolchain"): four include
+   lines in `portaudio_sink.h` and `flac_decode.h`; `build/bin/kora` builds. Not yet run. The compiler
+   reports 40 warnings in own code, among them one missing return (`-Wreturn-type`, a real bug) and
+   seven `-Wformat-security`; two files hard-code a home-directory path (`audio_select.*`).
 1. **Safety net.** Warnings on for own code, the sanitizer switches the CMake file already has
    (address, undefined, thread), and a headless smoke test (decode a file into a null sink) so that
    later steps can be checked without the terminal UI.
