@@ -1,168 +1,63 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.20)
 
-set(CMAKE_CXX_STANDARD 17)
+project(korre VERSION 0.2.0 LANGUAGES C CXX)
 
-set(CMAKE_BUILD_TYPE Debug)
-
-add_compile_options(-static)
-
-project(imtui)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS "on")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-
-set(IMTUI_STANDALONE ON)
-
-if (EMSCRIPTEN)
-    set(IMTUI_SUPPORT_NCURSES_DEFAULT OFF)
-    set(IMTUI_SUPPORT_CURL_DEFAULT OFF)
-    set(IMTUI_LIBRARY_TYPE STATIC)
-else()
-    set(IMTUI_SUPPORT_NCURSES_DEFAULT ON)
-    set(IMTUI_SUPPORT_CURL_DEFAULT ON)
-    if (BUILD_SHARED_LIBS)
-        set(IMTUI_LIBRARY_TYPE SHARED)
-    else ()
-        set(IMTUI_LIBRARY_TYPE STATIC)
-    endif()
-endif()
-
-# options
-
-option(IMTUI_ALL_WARNINGS            "imtui: enable all compiler warnings" ${IMTUI_STANDALONE})
-option(IMTUI_ALL_WARNINGS_3RD_PARTY  "imtui: enable all compiler warnings in 3rd party libs" OFF)
-
-option(IMTUI_SANITIZE_THREAD         "imtui: enable thread sanitizer" OFF)
-option(IMTUI_SANITIZE_ADDRESS        "imtui: enable address sanitizer" OFF)
-option(IMTUI_SANITIZE_UNDEFINED      "imtui: enable undefined sanitizer" OFF)
-
-option(IMTUI_SUPPORT_NCURSES         "imtui: support for libncurses" ${IMTUI_SUPPORT_NCURSES_DEFAULT})
-option(IMTUI_SUPPORT_CURL            "imtui: support for libcurl" ${IMTUI_SUPPORT_CURL_DEFAULT})
-
-option(IMTUI_BUILD_EXAMPLES          "imtui: build examples" ${IMTUI_STANDALONE})
-
-# sanitizers
-
-if (IMTUI_SANITIZE_THREAD)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
-endif()
-
-if (IMTUI_SANITIZE_ADDRESS)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-endif()
-
-if (IMTUI_SANITIZE_UNDEFINED)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
-endif()
-
-# dependencies
-
-if (IMTUI_SUPPORT_NCURSES)
-    if (MINGW)
-        set(CURSES_LIBRARIES pdcurses)
-    else()
-
-        find_package(Curses REQUIRED)
-        CHECK_LIBRARY_EXISTS("${CURSES_NCURSES_LIBRARY}"
-            nodelay "" CURSES_NCURSES_HAS_NODELAY)
-        if(NOT CURSES_NCURSES_HAS_NODELAY)
-            find_library(CURSES_EXTRA_LIBRARY tinfo)
-            CHECK_LIBRARY_EXISTS("${CURSES_EXTRA_LIBRARY}"
-                nodelay "" CURSES_TINFO_HAS_NODELAY)
-        endif()
-        if(CURSES_EXTRA_LIBRARY)
-            set(CURSES_LIBRARIES ${CURSES_LIBRARIES} ${CURSES_EXTRA_LIBRARY})
-        endif()
-    endif()
-endif()
-
-# main
+# ---- build settings ---------------------------------------------------------------------------
 
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
-    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo")
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo)
 endif ()
 
-add_subdirectory(imtui/third-party)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-if (IMTUI_ALL_WARNINGS)
-    if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
-    else()
-        # todo : windows
-    endif()
-endif()
+option(KORRE_BUILD_PLAYER "Build the terminal player (needs PortAudio and ncursesw)" ON)
+option(KORRE_BUILD_TESTS "Build the tests (run them with ctest)" ON)
 
-add_subdirectory(imtui/src)
+# Sanitizer builds, in their own build directory:
+#   cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DKORRE_SANITIZE=address
+#   cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DKORRE_SANITIZE=thread
+# "address" also turns on the undefined-behaviour checks; "thread" cannot be combined with it.
+set(KORRE_SANITIZE "" CACHE STRING "Sanitizer build: empty, 'address' or 'thread'")
+set_property(CACHE KORRE_SANITIZE PROPERTY STRINGS "" address thread)
 
+if (KORRE_SANITIZE STREQUAL "address")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+elseif (KORRE_SANITIZE STREQUAL "thread")
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+elseif (KORRE_SANITIZE)
+    message(FATAL_ERROR "KORRE_SANITIZE must be empty, 'address' or 'thread' (got '${KORRE_SANITIZE}')")
+endif ()
 
-project(kora)
+# Warnings apply to our own code only; the vendored libraries are built as they came.
+add_library(korre_warnings INTERFACE)
+target_compile_options(korre_warnings INTERFACE -Wall -Wextra -Wpedantic)
 
+# New code (everything outside the imported player) is held to a stricter set.
+add_library(korre_strict_warnings INTERFACE)
+target_link_libraries(korre_strict_warnings INTERFACE korre_warnings)
+target_compile_options(korre_strict_warnings INTERFACE -Wshadow -Wconversion -Wno-sign-conversion)
 
-#set(BUILD_SHARED_LIBS OFF)
+# ---- dependencies -----------------------------------------------------------------------------
 
-add_executable(kora
-        main.cpp
-        imtui/src/imtui-impl-ncurses.cpp
-        pffft/pffft.h
-        pffft/pffft.c
-        pffft/pfft.h
-        include/tukey.h
-        include/elements/player.h
-        src/elements/player.cpp
-        src/tukey.cpp
-        include/sinks/portaudio_sink.h
-        src/sinks/portaudio_sink.cpp
-        include/sinks/sink.h
-        src/sinks/sink.cpp
-        include/sampler.h
-        src/sampler.cpp
-        include/sources/wave.h
-        src/sources/wave.cpp
-        include/sources/wave_source.h
-        src/sources/wave_source.cpp
-        include/decoders/flac_decode.h
-        src/decoders/flac_decode.cpp
-        include/elements/meter.h
-        src/elements/meter.cpp
-        src/elements/audio_select.cpp
-        include/elements/audio_select.h
-        include/elements/queue.h
-        src/elements/queue.cpp
-        include/elements/korre.h
-        src/elements/korre.cpp
-        include/windowth.h
-        src/windowth.cpp
-        src/decoders/minimp3.h
-        src/decoders/mp3_decode.cpp
-        src/decoders/minimp3_ex.h
-        include/decoders/mp3_decode.h)
+find_library(FLAC_LIBRARY NAMES FLAC REQUIRED)
+find_path(FLAC_INCLUDE_DIR NAMES FLAC/stream_decoder.h REQUIRED)
 
-include_directories(./)
-include_directories(/usr/local/include)
-include_directories(./imtui)
-include_directories(./include)
-include_directories(/opt/homebrew/include)
+# ---- libraries --------------------------------------------------------------------------------
 
-#set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".so" ".dylib")
-find_library(l_portaudio NAMES portaudio)
-find_library(l_ncurses NAMES ncursesw)
-find_library(l_flac NAMES flac)
-find_library(l_flacpp NAMES flac++)
+add_subdirectory(audio)   # reading and writing audio files
 
-target_link_libraries(kora PUBLIC ${l_portaudio})
-target_link_libraries(kora PUBLIC ${l_ncurses})
-target_link_libraries(kora PUBLIC imtui)
-target_link_libraries(kora PUBLIC ${l_flac})
-target_link_libraries(kora PUBLIC ${l_flacpp})
+if (KORRE_BUILD_PLAYER)
+    include(cmake/player.cmake)
+endif ()
 
-message(MSG_PORTAUDIO="${l_portaudio}")
-message(MSG_NCURSES="${l_ncurses}")
-message(MSG_FLAC="${l_flac}")
-message(MSG_FLAC="${l_flacpp}")
-
-install(TARGETS kora RUNTIME DESTINATION bin)
+if (KORRE_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif ()
