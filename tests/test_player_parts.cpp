@@ -1,5 +1,5 @@
-// The parts of the player that have no interface code in them: the spectrum display's numbers and
-// the play queue.
+// The parts of the player that have no interface code in them: the spectrum display's numbers, the
+// Braille curve, the level meter and the play queue.
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +12,7 @@
 
 #include "braille.h"
 #include "check.h"
+#include "level_meter.h"
 #include "play_queue.h"
 #include "spectrum.h"
 
@@ -226,6 +227,93 @@ void test_braille()
     }
 }
 
+void test_level_meter()
+{
+    const float quiet[2] = {0.0f, 0.0f};
+    const double none[2] = {0.0, 0.0};
+
+    // ---- the peak reading: up at once, back at 12 dB a second
+    level_meter m;
+    CHECK(m.mode() == level_meter::reading::rms); // the needle-like reading is the one it starts with
+    m.set_mode(level_meter::reading::peak);
+    CHECK(m.bar_db(0) == level_meter::floor_db && m.mark_db(1) == level_meter::floor_db);
+    const float hit[2] = {0.5f, 0.25f};
+    const double hit_energy[2] = {0.125 * 480, 0.03125 * 480};
+    m.update(hit, hit_energy, 480, 0, 0.01);
+    CHECK_NEAR(m.bar_db(0), -6.02, 0.01);
+    CHECK_NEAR(m.bar_db(1), -12.04, 0.01);
+    CHECK_NEAR(m.mark_db(0), -6.02, 0.01);
+    m.update(quiet, none, 480, 0, 0.5);
+    CHECK_NEAR(m.bar_db(0), -12.02, 0.01);  // half a second later, 6 dB down
+    CHECK_NEAR(m.mark_db(0), -6.02, 0.01);  // the mark has not moved
+    m.update(quiet, none, 480, 0, 0.9);
+    CHECK_NEAR(m.mark_db(0), -6.02, 0.01);  // 1.4 s: still held
+    m.update(quiet, none, 480, 0, 0.6);     // 2.0 s: half a second past the hold
+    CHECK_NEAR(m.mark_db(0), -6.02 - 3.0, 0.01);
+    CHECK_NEAR(m.bar_db(0), -6.02 - 24.0, 0.01);
+    m.update(quiet, none, 480, 0, 1.0);     // 3.0 s
+    CHECK_NEAR(m.mark_db(0), -6.02 - 9.0, 0.01);
+    // The bar never passes its mark: a mark that has fallen is pushed up again.
+    const float louder[2] = {0.9f, 0.9f};
+    m.update(louder, none, 480, 0, 0.01);
+    CHECK_NEAR(m.bar_db(0), -0.92, 0.01);
+    CHECK_NEAR(m.mark_db(0), -0.92, 0.01);
+    // In many small steps the mark falls as far as in one.
+    for (int i = 0; i < 300; ++i)
+    {
+        m.update(quiet, none, 160, 0, 0.01);
+    }
+    CHECK_NEAR(m.mark_db(0), -0.92 - 6.0 * 1.5, 0.05); // 3 s: 1.5 s held, 1.5 s falling
+    // With nothing left the bar and the mark end at the floor and stay there.
+    for (int i = 0; i < 40; ++i)
+    {
+        m.update(quiet, none, 0, 0, 1.0);
+    }
+    CHECK(m.bar_db(0) == level_meter::floor_db && m.mark_db(0) == level_meter::floor_db);
+
+    // ---- the RMS reading: a full-scale sine reads 0 dB, half of it -6, reached like a needle
+    level_meter r;
+    const float sine_peak[2] = {0.5f, 1.0f};
+    const double sine_energy[2] = {0.125 * 480, 0.5 * 480}; // 10 ms at 48 kHz of amplitude 0.5 and 1
+    for (int i = 0; i < 30; ++i)
+    {
+        r.update(sine_peak, sine_energy, 480, 0, 0.01);
+    }
+    // after one averaging time, 63% of the power is in: 2 dB short
+    CHECK_NEAR(r.bar_db(0), -6.02 + 10 * std::log10(1 - std::exp(-1.0)), 0.02);
+    for (int i = 0; i < 500; ++i)
+    {
+        r.update(sine_peak, sine_energy, 480, 0, 0.01);
+    }
+    CHECK_NEAR(r.bar_db(0), -6.02, 0.01);
+    CHECK_NEAR(r.bar_db(1), 0.0, 0.01);
+    CHECK_NEAR(r.mark_db(0), -6.02, 0.01);
+    // While nothing plays (no frames) the needle falls back.
+    r.update(quiet, none, 0, 0, 0.3);
+    CHECK_NEAR(r.bar_db(0), -6.02 + 10 * std::log10(std::exp(-1.0)), 0.02);
+    CHECK_NEAR(r.mark_db(0), -6.02, 0.01);
+
+    // Switching the reading starts afresh; choosing the one already chosen changes nothing.
+    r.set_mode(level_meter::reading::rms);
+    CHECK(r.mark_db(0) > -7.0);
+    r.set_mode(level_meter::reading::peak);
+    CHECK(r.mode() == level_meter::reading::peak && r.bar_db(0) == level_meter::floor_db && r.mark_db(0) == level_meter::floor_db);
+
+    // ---- the OVER lamp: lit for two seconds after samples hit full scale
+    level_meter o;
+    CHECK(!o.over());
+    o.update(quiet, none, 480, 0, 0.01);
+    CHECK(!o.over());
+    o.update(quiet, none, 480, 3, 0.01);
+    CHECK(o.over());
+    o.update(quiet, none, 480, 3, 1.9);
+    CHECK(o.over());
+    o.update(quiet, none, 480, 3, 0.2);
+    CHECK(!o.over());
+    o.update(quiet, none, 480, 4, 0.01);
+    CHECK(o.over());
+}
+
 void test_queue()
 {
     play_queue q;
@@ -294,6 +382,7 @@ int main()
 {
     test_spectrum();
     test_braille();
+    test_level_meter();
     test_queue();
     return check::result();
 }

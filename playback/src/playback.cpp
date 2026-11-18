@@ -348,6 +348,15 @@ playback::levels playback::take_levels() noexcept
     levels l;
     l.peak[0] = peak_[0].exchange(0.0f);
     l.peak[1] = peak_[1].exchange(0.0f);
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        const double total = energy_total_[ch].load(std::memory_order_relaxed);
+        l.energy[ch] = std::max(total - energy_seen_[ch], 0.0);
+        energy_seen_[ch] = total;
+    }
+    const std::uint64_t frames = frames_total_.load(std::memory_order_relaxed);
+    l.frames = frames - frames_seen_;
+    frames_seen_ = frames;
     l.clipped = clipped_.load();
     l.underruns = underruns_.load();
     return l;
@@ -380,6 +389,7 @@ void playback::render(std::span<float> out) noexcept
 
     std::size_t done = 0;
     float peak[2] = {0.0f, 0.0f};
+    double energy[2] = {0.0, 0.0};
     std::uint64_t clipped = 0;
     bool ran_dry = false;
 
@@ -411,6 +421,8 @@ void playback::render(std::span<float> out) noexcept
             float r = in[2 * i + 1] * gain;
             peak[0] = std::max(peak[0], std::fabs(l));
             peak[1] = std::max(peak[1], std::fabs(r));
+            energy[0] += static_cast<double>(l) * l;
+            energy[1] += static_cast<double>(r) * r;
             if (std::fabs(l) > 1.0f)
             {
                 l = std::copysign(1.0f, l);
@@ -456,7 +468,9 @@ void playback::render(std::span<float> out) noexcept
         {
             peak_[ch].store(peak[ch], std::memory_order_relaxed);
         }
+        energy_total_[ch].store(energy_total_[ch].load(std::memory_order_relaxed) + energy[ch], std::memory_order_relaxed);
     }
+    frames_total_.fetch_add(done, std::memory_order_relaxed);
     if (clipped != 0)
     {
         clipped_.fetch_add(clipped, std::memory_order_relaxed);

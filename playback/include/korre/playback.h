@@ -95,9 +95,13 @@ public:
     struct levels
     {
         float peak[2] = {0, 0};      ///< largest sample since the last call, per channel
+        double energy[2] = {0, 0};   ///< sum of the squared samples since the last call, per channel
+        std::uint64_t frames = 0;    ///< how many frames those are (none while nothing plays)
         std::uint64_t clipped = 0;   ///< samples that reached full scale, in total
         std::uint64_t underruns = 0; ///< times the audio thread found the queue empty, in total
     };
+    /// What was played since the last call. For one caller: the interface takes it once per frame
+    /// and hands it to whatever shows levels.
     levels take_levels() noexcept;
 
     /// The samples just played, both channels mixed to one, oldest first. Returns how many were
@@ -168,6 +172,12 @@ private:
     std::atomic<std::uint64_t> pending_position_{0}; ///< where a seek went, until its audio is heard
     std::atomic<float> gain_{1.0f};
     std::atomic<float> peak_[2] = {0.0f, 0.0f};
+    // Running totals, written by the audio thread only; take_levels() reports what was added since
+    // it last looked. (A sum that is reset from another thread could lose an addition.)
+    std::atomic<double> energy_total_[2] = {0.0, 0.0};
+    std::atomic<std::uint64_t> frames_total_{0};
+    double energy_seen_[2] = {0.0, 0.0};
+    std::uint64_t frames_seen_ = 0;
     std::atomic<std::uint64_t> clipped_{0};
     std::atomic<std::uint64_t> underruns_{0};
     std::size_t cursor_ = 0; ///< audio thread only: frames already played from the front chunk

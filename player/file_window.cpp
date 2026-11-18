@@ -50,7 +50,7 @@ std::optional<std::filesystem::path> file_window::draw()
 {
     chosen_.reset();
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    ImGui::SetNextWindowPos(ImVec2(83, 15), ImGuiCond_Once);
+    ImGui::SetNextWindowPos(ImVec2(2, 15), ImGuiCond_Once);
     framed_window(width_, height_, "Audio_Select", [this] { content(); });
     return chosen_;
 }

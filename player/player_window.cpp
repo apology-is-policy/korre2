@@ -41,11 +41,12 @@ void detail(const char* label, const std::string& value)
 
 player_window::player_window(playback& player, spectrum& display, tape_shelf& shelf) : player_(player), display_(display), shelf_(shelf) {}
 
-std::string player_window::draw(const std::string& message)
+std::string player_window::draw(const std::string& message, const playback::levels& levels)
 {
     message_ = &message;
+    levels_ = &levels;
     problem_.clear();
-    ImGui::SetNextWindowPos(ImVec2(2, 2), ImGuiCond_Once);
+    ImGui::SetNextWindowPos(ImVec2(43, 2), ImGuiCond_Once);
     framed_window(width_, height_, "Audio_Player", [this] { content(); });
     return problem_;
 }
@@ -108,6 +109,15 @@ void player_window::track_details()
     const double megabytes = static_cast<double>(frames) * info.channels * (bits / 8) / 1048576.0;
 
     ImGui::SetCursorPos(ImVec2(0, 1));
+    if (!player_.has_track())
+    {
+        // Nothing in the deck yet: the same lines, empty.
+        for (const char* label : {"Audio Format: ", " Sampling Rate: ", " Bit Depth: ", " Channels: ", " Data Size: ", " Number of Samples: ", " Duration: "})
+        {
+            detail(label, "-");
+        }
+        return;
+    }
     detail("Audio Format: ", info.container == "MP3" ? std::format("MP3 {} kbps", info.bitrate_kbps) : info.container + "/" + info.encoding);
     detail(" Sampling Rate: ", std::to_string(info.sample_rate));
     detail(" Bit Depth: ", info.bits_per_sample != 0 ? std::to_string(info.bits_per_sample) : std::string("-"));
@@ -201,7 +211,7 @@ void player_window::tape_panel()
     }
 
     // ---- the level on its way out, and a lamp for samples that hit full scale
-    const playback::levels levels = player_.take_levels();
+    const playback::levels& levels = *levels_;
     const float elapsed = ImGui::GetIO().DeltaTime;
     const float peak = std::max(levels.peak[0], levels.peak[1]);
     const float now_db = peak > 0 ? 20.0f * std::log10(peak) : -120.0f;
@@ -226,7 +236,8 @@ void player_window::transport()
 {
     ImGui::TextUnformatted(" ");
     ImGui::SameLine();
-    if (ImGui::Button(player_.playing() ? " ⏸ \n PAUSE \n" : " ▶ \n PLAY  \n"))
+    const bool has_track = player_.has_track(); // without one the buttons and the slider are there but do nothing
+    if (ImGui::Button(player_.playing() ? " ⏸ \n PAUSE \n" : " ▶ \n PLAY  \n") && has_track)
     {
         if (player_.playing())
         {
@@ -241,7 +252,7 @@ void player_window::transport()
     ImGui::SameLine();
     ImGui::TextUnformatted(" ");
     ImGui::SameLine();
-    if (ImGui::Button(" ⏹ \n STOP \n"))
+    if (ImGui::Button(" ⏹ \n STOP \n") && has_track)
     {
         player_.pause();
         player_.seek(0);
@@ -253,17 +264,17 @@ void player_window::transport()
     // The position: drag it to seek.
     const audio_info& info = player_.info();
     const auto limit = static_cast<std::uint64_t>(std::numeric_limits<int>::max());
-    int position = static_cast<int>(std::min(player_.position(), limit));
-    const int length = static_cast<int>(std::min(std::max<std::uint64_t>(info.frames, 1), limit));
+    int position = has_track ? static_cast<int>(std::min(player_.position(), limit)) : 0;
+    const int length = static_cast<int>(std::min(std::max<std::uint64_t>(has_track ? info.frames : 0, 1), limit));
     char label[32];
-    std::snprintf(label, sizeof label, "\n%.0f s", info.sample_rate ? static_cast<double>(position) / info.sample_rate : 0.0);
+    std::snprintf(label, sizeof label, "\n%.0f s", has_track && info.sample_rate ? static_cast<double>(position) / info.sample_rate : 0.0);
 
     ImGui::PushStyleColor(ImGuiCol_FrameBg, static_cast<ImVec4>(ImColor(30, 30, 30)));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, static_cast<ImVec4>(ImColor(60, 60, 60)));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, static_cast<ImVec4>(ImColor(60, 60, 60)));
     ImGui::PushStyleColor(ImGuiCol_SliderGrab, static_cast<ImVec4>(yellow));
     ImGui::SetNextItemWidth(static_cast<float>(width_ - 19));
-    if (ImGui::SliderInt("", &position, 0, length, label))
+    if (ImGui::SliderInt("", &position, 0, length, label) && has_track)
     {
         player_.seek(static_cast<std::uint64_t>(std::max(position, 0)));
     }

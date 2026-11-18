@@ -24,6 +24,7 @@ add_executable(kora
         player/main.cpp
         player/app.cpp
         player/player_window.cpp
+        player/meter_window.cpp
         player/queue_window.cpp
         player/file_window.cpp
         player/frame.cpp

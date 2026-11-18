@@ -29,7 +29,7 @@ void lamp(bool on)
 queue_action queue_window::draw()
 {
     action_ = queue_action::none;
-    ImGui::SetNextWindowPos(ImVec2(83, 2), ImGuiCond_Once);
+    ImGui::SetNextWindowPos(ImVec2(2, 2), ImGuiCond_Once);
     framed_window(width_, height_, "Audio_Queue", [this] { content(); });
     return action_;
 }

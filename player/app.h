@@ -11,6 +11,8 @@
 #include "file_window.h"
 #include "korre/playback.h"
 #include "korre/portaudio_output.h"
+#include "level_meter.h"
+#include "meter_window.h"
 #include "play_queue.h"
 #include "player_window.h"
 #include "queue_window.h"
@@ -70,6 +72,8 @@ private:
     queue_window queue_window_;
     file_window file_window_;
     player_window player_window_;
+    level_meter meter_;
+    meter_window meter_window_;
 
     std::vector<output_device> devices_;
     std::string message_;

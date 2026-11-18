@@ -17,6 +17,18 @@ kora [options] [file or playlist ...]
 
 The mouse works everywhere; `q` quits.
 
+## The windows
+
+Four, placed side by side at the start (148 columns wide in all; each can be dragged by its top edge):
+
+```
+Audio_Queue   | Audio_Player                                   | Audio_Level
+--------------|   track details, tape controls (DSP),          |   the level meter
+Audio_Select  |   transport, position, spectrum                |
+```
+
+The player is there from the start, empty until a track is loaded.
+
 ## The tape controls
 
 They are in the DSP panel of the player window:
@@ -37,6 +49,25 @@ Bypass plays the file as it is at the same level and in the same place, for comp
 in the deck both paths are 6 dB down, because the tape's phase rotation raises the peaks of loud
 masters (see `../playback/README.md`).
 
+## The level meter
+
+```
+   █ RMS    █ PEAK      the reading: press one, its lamp lights and the other goes out
+   dB      L     R
+    0 ╴  ▆▆▆▆▆ ▆▆▆▆▆    a ladder of lamps per channel: red from -2 dB up, amber to -9, green below,
+         ━━━━━ ▆▆▆▆▆    a dB apart at the top and wider apart further down
+   -3 ╴  ▆▆▆▆▆ ━━━━━    ━━━ the mark: it sticks at the highest point the bar reached, stays for a
+   ...                      second and a half, then falls at 6 dB a second until the bar meets it
+  max     -0.4  -1.8    the mark's level in figures
+   █ OVER               lit for two seconds after a sample hit full scale
+```
+
+- **PEAK** shows the largest sample: the bar jumps up at once and falls back at 12 dB a second.
+- **RMS** shows the power averaged over about a third of a second, the way a needle moves. A
+  full-scale sine reads 0 dB in both readings, so one scale serves the two.
+
+What it shows is what goes to the sound card: after the tape, the make-up gain and the headroom.
+
 ## Files
 
 | file | what |
@@ -44,6 +75,7 @@ masters (see `../playback/README.md`).
 | `main.cpp` | the command line |
 | `app.*` | the application: menu bar, the frame loop, what happens when a track ends or will not open |
 | `player_window.*` | the main window: track details, tape controls, transport, position, spectrum |
+| `meter_window.*`, `level_meter.*` | the level meter's window, and its numbers: bar, sticky mark, the two readings (no interface code, tested) |
 | `queue_window.*`, `play_queue.*` | the queue window, and the order of play behind it (no interface code, tested) |
 | `file_window.*` | the file selector |
 | `tape_shelf.*` | the profiles on offer and which one is in the deck |

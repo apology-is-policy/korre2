@@ -54,7 +54,7 @@ build/bin/kora --profile wmd6c_xlii_sideB song.flac another.mp3
 ```
 
 Plays WAV, FLAC and MP3 files and plain-text playlists (one path per line) through PortAudio, with a
-play queue, shuffle, output device selection and a spectrum display. The tape controls are in the
+play queue, shuffle, output device selection, a spectrum display and a level meter. The tape controls are in the
 DSP panel of the player window: which profile is in the deck, a switch for each part of the model,
 and Bypass for comparing with the file as it is. `kora --help` lists the options;
 [`player/README.md`](player/README.md) describes the controls.

@@ -15,9 +15,10 @@ class player_window
 public:
     player_window(playback& player, spectrum& display, tape_shelf& shelf);
 
-    /// Draws the window. `message` is shown on its bottom line. Returns a problem met while acting on
-    /// a click (a profile that would not load, a device that would not open), or an empty string.
-    std::string draw(const std::string& message);
+    /// Draws the window, with or without a track loaded. `message` is shown on its bottom line and
+    /// `levels` is what was played since the last frame. Returns a problem met while acting on a
+    /// click (a profile that would not load, a device that would not open), or an empty string.
+    std::string draw(const std::string& message, const playback::levels& levels);
 
 private:
     void content();
@@ -30,6 +31,7 @@ private:
     spectrum& display_;
     tape_shelf& shelf_;
     const std::string* message_ = nullptr;
+    const playback::levels* levels_ = nullptr;
     std::string problem_;
     float peak_db_ = -120.0f;       ///< the level meter: jumps up, falls slowly
     std::uint64_t clipped_seen_ = 0;

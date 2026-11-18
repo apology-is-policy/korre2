@@ -26,7 +26,7 @@ std::unique_ptr<audio_output> make_output(const options& opt)
 app::app(options opt)
     : options_(std::move(opt)), output_(make_output(options_)), sound_card_(dynamic_cast<portaudio_output*>(output_.get())),
       player_(*output_), shelf_(player_, options_.profiles), queue_window_(queue_), file_window_(options_.workspace),
-      player_window_(player_, spectrum_, shelf_)
+      player_window_(player_, spectrum_, shelf_), meter_window_(meter_)
 {
     if (sound_card_)
     {
@@ -108,6 +108,11 @@ void app::frame()
 {
     menu_bar();
 
+    // What was played since the last frame, taken once and shown in two places: the DSP panel's
+    // peak figure and the level meter.
+    const playback::levels levels = player_.take_levels();
+    meter_.update(levels.peak, levels.energy, levels.frames, levels.clipped, static_cast<double>(ImGui::GetIO().DeltaTime));
+
     if (auto chosen = file_window_.draw())
     {
         enqueue(*chosen);
@@ -125,13 +130,12 @@ void app::frame()
         break;
     }
 
-    if (player_.has_track())
+    // The player is there from the start, empty until a track is loaded.
+    if (std::string problem = player_window_.draw(message_, levels); !problem.empty())
     {
-        if (std::string problem = player_window_.draw(message_); !problem.empty())
-        {
-            say(std::move(problem), true);
-        }
+        say(std::move(problem), true);
     }
+    meter_window_.draw();
 
     // 'q' quits, unless a text field has the keyboard.
     if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed('q', false))

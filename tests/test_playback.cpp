@@ -98,6 +98,20 @@ void test_plain()
     CHECK_NEAR(levels.peak[0], 0.5, 0.001);
     CHECK_NEAR(levels.peak[1], 0.25, 0.001);
     CHECK(levels.clipped == 0); // (underruns are expected here: this "sound card" pulls faster than real time)
+    // The energy played, for an RMS reading: the sum of the squared samples of the track, over its frames.
+    {
+        double expected[2] = {0.0, 0.0};
+        for (std::size_t i = 0; i < frames; ++i)
+        {
+            expected[0] += static_cast<double>(all[2 * i]) * all[2 * i];
+            expected[1] += static_cast<double>(all[2 * i + 1]) * all[2 * i + 1];
+        }
+        CHECK(levels.frames == frames);
+        CHECK_NEAR(levels.energy[0] / expected[0], 1.0, 1e-9);
+        CHECK_NEAR(levels.energy[1] / expected[1], 1.0, 1e-9);
+        const auto nothing_since = p.take_levels(); // taken: the next call starts from here
+        CHECK(nothing_since.frames == 0 && nothing_since.energy[0] == 0.0 && nothing_since.peak[0] == 0.0f);
+    }
     std::vector<float> mono(4000);
     CHECK(p.read_played(mono) == 4000);
     bool tap_ok = true;
