@@ -30,7 +30,7 @@ the record of how each part was found).
 | stage | what | how |
 |---|---|---|
 | record gain | how hard the tape is driven | per channel, from the profile or `settings` |
-| saturation | a faint cubic; then treble saturation, because tape is recorded with boosted treble | cubic; first-order shelf, cubic, the exact inverse shelf |
+| saturation | a faint cubic, with a level per channel where the profile gives one (the left track, along the tape's edge, distorts more); then treble saturation, because tape is recorded with boosted treble | cubic; first-order shelf, cubic, the exact inverse shelf |
 | static response | magnitude and phase per channel, including the bass roll-off's large phase rotation and the delay between the channels | one filter of a third of a second per channel, applied as a partitioned FFT convolution |
 | timing | slow wobble: a noise spectrum plus the transport's mechanical lines (pinch roller, capstan, motor and their harmonics) as steady sines where the profile lists them; the slow left-right difference; fast jitter (a common part and a part per channel) | one moving delay line per channel, read with a 48-tap windowed sinc |
 | amplitude flicker | deeper towards the treble; a common part and a part per channel | two short symmetric filters per channel, each times a slow random gain |

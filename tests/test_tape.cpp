@@ -743,6 +743,69 @@ void test_lines()
     }
 }
 
+// The flat cubic: one level for both channels or one each, and the distortion it makes.
+void test_cubic()
+{
+    std::ifstream file(profiles / "wmd6c_xlii_sideB.json");
+    std::stringstream text;
+    text << file.rdbuf();
+    const std::string base = text.str();
+    const auto at = base.find("\"cubic_rel_db\":");
+    CHECK(at != std::string::npos);
+    const auto value_end = base.find(',', at);
+    const auto with = [&](const std::string& value) { return base.substr(0, at) + "\"cubic_rel_db\":" + value + base.substr(value_end); };
+
+    const auto both = parse_profile(with("-41.5"));
+    CHECK_MSG(both.has_value(), both ? std::string() : both.error());
+    CHECK(both && both->saturation.cubic_rel_db[0] == -41.5 && both->saturation.cubic_rel_db[1] == -41.5);
+    const auto each = parse_profile(with(R"({"L":-36.5,"R":-40.0})"));
+    CHECK_MSG(each.has_value(), each ? std::string() : each.error());
+    CHECK(each && each->saturation.cubic_rel_db[0] == -36.5 && each->saturation.cubic_rel_db[1] == -40.0);
+    CHECK(!parse_profile(with(R"({"L":-36.5})")).has_value());
+    CHECK(!parse_profile(with(R"("loud")")).has_value());
+    if (!each)
+    {
+        return;
+    }
+
+    // A 1 kHz sine at the reference level through the saturation alone: its third harmonic.
+    profile p = *each;
+    p.saturation.hf.reset();
+    p.saturation.ref_rms_dbfs = -20.0;
+    p.saturation.cubic_rel_db = {-30.0, -40.0};
+    settings s;
+    s.sample_rate = 48000;
+    s.ingredients = static_cast<std::uint32_t>(ingredient::saturation);
+    s.record_gain_db = stereo{0.0, 0.0};
+    s.polarity = 1;
+    engine e(p, s);
+    const std::size_t lag = e.delay().total, frames = lag + 9600;
+    const double amplitude = 0.1 * std::numbers::sqrt2; // RMS 0.1 = -20 dBFS
+    std::vector<float> in(frames * 2), out(frames * 2);
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        in[2 * i] = in[2 * i + 1] = static_cast<float>(amplitude * std::sin(2 * std::numbers::pi * 1000.0 * static_cast<double>(i) / 48000.0));
+    }
+    e.process(in, out);
+    const auto level_db = [&](int channel, double hz) {
+        double re = 0, im = 0;
+        const std::size_t from = lag + 480, n = 4800; // whole periods of 1 and 3 kHz
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            const double w = 2 * std::numbers::pi * hz * static_cast<double>(from + i) / 48000.0;
+            re += static_cast<double>(out[2 * (from + i) + static_cast<std::size_t>(channel)]) * std::cos(w);
+            im += static_cast<double>(out[2 * (from + i) + static_cast<std::size_t>(channel)]) * std::sin(w);
+        }
+        return 20 * std::log10(2.0 * std::sqrt(re * re + im * im) / static_cast<double>(n));
+    };
+    // The level in the profile is for music (a noise-like signal); for a sine at the same RMS the third
+    // harmonic is 20 log10(2 / (4 sqrt(15))) = 17.8 dB further down, less 0.1 dB for the fundamental's own loss.
+    const double third_left = level_db(0, 3000) - level_db(0, 1000), third_right = level_db(1, 3000) - level_db(1, 1000);
+    CHECK_NEAR(third_left, -30.0 - 17.78 + 0.11, 0.05);
+    CHECK_NEAR(third_right, -40.0 - 17.78 + 0.03, 0.05);
+    CHECK_NEAR(third_left - third_right, 10.0, 0.1); // each channel its own
+}
+
 } // namespace
 
 int main()
@@ -754,5 +817,6 @@ int main()
     test_profile();
     test_engine();
     test_lines();
+    test_cubic();
     return check::result();
 }

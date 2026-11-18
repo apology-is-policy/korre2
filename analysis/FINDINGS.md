@@ -1055,3 +1055,67 @@ A LINE OUT take of the same song would separate the two.
 
 Next: fit the distortion on this chain (which order, and per channel), then the level-dependent
 modulation; check each with `residbylevel.py` on the loudest tenth.
+
+## 2026-11-18 (afternoon): the distortion on the metal chain. Fitted per channel; one question open
+The owner said yes to the next pass (distortion, then level-dependent treble modulation, then steady
+lines for the other profiles) and no to a LINE OUT take (the setup is taken apart).
+
+### Third order, on the way in, more on the left (`distfit.py`, new)
+The residual left after the linear prediction and the per-window gain and timing, explained with the
+squared and the cubed source ("in") or the squared and the cubed linear prediction ("out"), each through
+a 32-tap FIR, fitted on even seconds and tested on odd ones; the loudest quarter:
+
+| MB2 (Shallow), tape | left: share explained, level re signal | right |
+|---|---|---|
+| in, 3rd order | 6.6%, −38.7 dB | 2.7%, −43.7 dB |
+| in, 2nd order | 0.5%, −49.5 dB | 0.7%, −49.2 dB |
+| out, 3rd order | 1.7%, −44.7 dB | 0.7%, −49.3 dB |
+| out, 2nd order | 0.1%, −55.2 dB | 0.1%, −56.7 dB |
+
+- **Third order; the second is 11 dB and more below it.**
+- **It arises on the way in.** The cubed source explains four times what the cubed output does. The two
+  differ because the chain turns the bass phase and raises the peaks by about 5 dB before the output: a
+  nonlinearity after that (a headphone amplifier) would see another waveform. An emulation whose only
+  nonlinearity is a cubic at the input reads 8 to 1. So the tape and its record stage, not the headphone
+  amplifier: the question a LINE OUT take was to answer.
+- **More on the left:** 5 dB at the same input, of which 1 to 1.5 dB is the left's higher record level. I Miss
+  You (MB3), recorded 0.5-0.75 dB lower, reads −40.7 / −45.7 dB: 2 dB per dB of level, as a cubic does.
+- The emulation of the judged pair read −45.2 / −46.2 dB: 6.5 and 2.5 dB too little. Its cubic (−43 dB at
+  the reference level, both channels) came from the chrome tape's line-out capture.
+
+### Model: a level per channel (`saturation.cubic_rel_db` as a number or as {"L", "R"})
+In the engine, `emulator.py` and `streamref.py`. `distfit.py MB2 --fit PROFILE` renders, measures and
+corrects: three rounds gave **−36.1 dB left, −40.0 dB right**, and the emulation then reads −38.7 / −43.7 dB
+like the tape. Per octave the predicted third-order products agree within about 1 dB (left, 256-tap fit,
+125 Hz to 8 kHz: tape −50.2 −38.7 −38.7 −39.4 −33.5 −26.7 −32.6 dB; emulation −48.3 −37.8 −38.0 −39.0 −34.0
+−27.1 −31.4), the fitted filters have the same sign and shape (correlation +0.85 left, +0.97 right), and
+the tape's filter explains the emulation's residual as well as its own does. So a flat cubic on the
+source, compressive, is the right kind.
+
+### What it does to the pair's shortfall, and the open question
+Same draw as the judged pair (seed 4), `residbylevel.py`, emulation minus tape, before → after:
+
+| | 250 | 500 | 1k | 2k Hz |
+|---|---|---|---|---|
+| loudest tenth | −0.6 → +0.7 | −0.8 → 0.0 | −0.7 → −0.6 | −0.6 → −0.5 |
+| quietest quarter | +0.1 → +1.0 | +0.1 → +0.5 | −0.3 → −0.1 | −0.3 → −0.2 |
+
+The shortfall at 500 Hz in the loudest tenth is gone, 1-2 kHz hardly moves (as estimated: distortion is
+a small share there), and at 250 Hz the emulation is now about 1 dB rougher than the tape **in every
+loudness class, the quiet ones included**. Distortion products cannot do that in quiet passages. What
+can: a cubic also turns the gain down with level (about 0.1 dB at the reference level, 0.4 dB in the
+loudest passages), and the residual here is taken against one linear fit for the whole song, so a gain
+that depends on level shows up everywhere. If the tape compressed the same way its own figures would
+hold that term, and the earlier, weaker emulation would have been cleaner than the tape in the quiet
+classes; it was not.
+**Open:** does the tape's gain fall with level as its third-order products say it should? `peaks.py MB2`
+and the same on the fitted emulation answers it (gain against the linear prediction by amplitude class).
+If the tape shows the products without the compression, the nonlinearity is not a plain cubic (magnetic
+hysteresis can do that), and the model needs the products without the gain change.
+Until then the judged pair's profile keeps its old cubic; the fitted variant is
+`out/calib/wmd6c_metalxr_v2_MB2_cubicfit.json` (not in git).
+
+### Not yet touched in this pass
+- The tape's slow amplitude modulation at 4 kHz grows with level (4.6 → 6.2%); with the fitted cubic the
+  emulation's stays flat (5.1 → 5.4%). So the cubic does not produce it; it needs its own mechanism.
+- Steady flutter lines for the other profiles.

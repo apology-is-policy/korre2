@@ -32,6 +32,15 @@ from align import warp
 INGREDIENTS = ("eq", "transport", "differential", "jitter", "flicker", "dropouts", "hiss", "saturation")
 
 
+def cubic_coefficients(saturation: dict, sigma: float) -> np.ndarray:
+    """The flat cubic's coefficient for the left and the right channel. `cubic_rel_db` is the level of
+    the third harmonic below a signal at the reference level `sigma`: one number for both channels, or
+    {"L": .., "R": ..} (the left track, along the tape's edge, distorts more)."""
+    rel = saturation["cubic_rel_db"]
+    rel = [rel["L"], rel["R"]] if isinstance(rel, dict) else [rel, rel]
+    return np.array([10 ** (v / 20) for v in rel]) / (np.sqrt(15) * sigma ** 2)
+
+
 def synth_from_psd(freqs, psd, fs, n, rng, log_interp=False):
     """Gaussian process of length n at rate fs with the given one-sided PSD (units^2/Hz)."""
     k = np.fft.rfftfreq(n, 1 / fs)
@@ -195,7 +204,7 @@ class Emulator:
 
         if "saturation" in ingredients and p["saturation"]["ref_rms_dbfs"] is not None:
             sigma = 10 ** (p["saturation"]["ref_rms_dbfs"] / 20)
-            c3 = 10 ** (p["saturation"]["cubic_rel_db"] / 20) / (np.sqrt(15) * sigma ** 2)
+            c3 = cubic_coefficients(p["saturation"], sigma)
             y = y - c3 * y ** 3
         hf = p["saturation"].get("hf")
         if "saturation" in ingredients and hf:

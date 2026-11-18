@@ -257,7 +257,15 @@ profile build(const json& j)
     }
     {
         const json& sat = member(j, "saturation", "");
-        p.saturation.cubic_rel_db = number(sat, "cubic_rel_db", "saturation.");
+        if (const json& cubic = member(sat, "cubic_rel_db", "saturation."); cubic.is_object())
+        {
+            p.saturation.cubic_rel_db = left_right(sat, "cubic_rel_db", "saturation."); // one per channel
+        }
+        else
+        {
+            const double both = number(sat, "cubic_rel_db", "saturation.");
+            p.saturation.cubic_rel_db = {both, both};
+        }
         if (!member(sat, "ref_rms_dbfs", "saturation.").is_null())
         {
             p.saturation.ref_rms_dbfs = number(sat, "ref_rms_dbfs", "saturation.");

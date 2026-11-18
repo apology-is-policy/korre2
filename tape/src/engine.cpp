@@ -402,7 +402,7 @@ struct engine::impl
 
     stereo record_gain{};
     double output_gain = 1;
-    double cubic = 0;           ///< coefficient of the flat cubic, 0 if the profile has none
+    stereo cubic{};             ///< coefficient of the flat cubic per channel, 0 if the profile has none
     bool treble_saturation = false;
     double treble_cubic = 0;
     double timing_scale = 0;    ///< samples per microsecond
@@ -456,7 +456,10 @@ engine::impl::impl(const profile& p, const settings& s)
         // The cubic that puts the third harmonic of a signal at the reference level `cubic_rel_db`
         // below it.
         const double sigma = from_db(*p.saturation.ref_rms_dbfs);
-        cubic = from_db(p.saturation.cubic_rel_db) / (std::sqrt(15.0) * sigma * sigma);
+        for (std::size_t c = 0; c < 2; ++c)
+        {
+            cubic[c] = from_db(p.saturation.cubic_rel_db[c]) / (std::sqrt(15.0) * sigma * sigma);
+        }
     }
     emphasis.resize(2);
     deemphasis.resize(2);
@@ -646,7 +649,7 @@ void engine::impl::work(const float* in, float* out, std::size_t n, trace* recor
         for (int c = 0; c < 2; ++c)
         {
             double y = static_cast<double>(in[2 * i + c]) * record_gain[c];
-            y -= g * cubic * y * y * y;
+            y -= g * cubic[static_cast<std::size_t>(c)] * y * y * y;
             if (treble_saturation)
             {
                 // Tape saturates on what is recorded, and the recorded signal has its treble boosted:

@@ -16,7 +16,7 @@ import numpy as np
 from scipy import signal
 
 from align import warp
-from emulator import INGREDIENTS, depth_curve, held_depth, hf_stage, measured_response
+from emulator import INGREDIENTS, cubic_coefficients, depth_curve, held_depth, hf_stage, measured_response
 
 
 def lround(x: float) -> int:
@@ -72,7 +72,7 @@ def apply(x: np.ndarray, profile: dict, sr: int, controls: dict, ingredients=ING
     if "saturation" in ingredients:
         if p["saturation"]["ref_rms_dbfs"] is not None:
             sigma = 10 ** (p["saturation"]["ref_rms_dbfs"] / 20)
-            y = y - 10 ** (p["saturation"]["cubic_rel_db"] / 20) / (np.sqrt(15) * sigma ** 2) * y ** 3
+            y = y - cubic_coefficients(p["saturation"], sigma) * y ** 3
         hf = p["saturation"].get("hf")
         if hf:
             y = hf_stage(y, sr, hf["tau_s"], hf["shelf_db"], hf["c"])

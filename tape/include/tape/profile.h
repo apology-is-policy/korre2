@@ -118,7 +118,10 @@ struct profile
     };
     struct saturation_set
     {
-        double cubic_rel_db = 0;
+        /// Level of the cubic's third harmonic below a signal at the reference level, per channel
+        /// (the left track, along the tape's edge, distorts more). A profile gives one number for
+        /// both channels or one for each.
+        stereo cubic_rel_db{};
         std::optional<double> ref_rms_dbfs;  ///< absent: no flat cubic
         std::optional<treble_saturation> hf; ///< absent: no treble saturation (the metal tape)
     } saturation;
