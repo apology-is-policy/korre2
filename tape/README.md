@@ -32,7 +32,7 @@ the record of how each part was found).
 | record gain | how hard the tape is driven | per channel, from the profile or `settings` |
 | saturation | a faint cubic; then treble saturation, because tape is recorded with boosted treble | cubic; first-order shelf, cubic, the exact inverse shelf |
 | static response | magnitude and phase per channel, including the bass roll-off's large phase rotation and the delay between the channels | one filter of a third of a second per channel, applied as a partitioned FFT convolution |
-| timing | slow wobble with the transport's mechanical lines, the slow left-right difference, fast jitter (a common part and a part per channel) | one moving delay line per channel, read with a 48-tap windowed sinc |
+| timing | slow wobble: a noise spectrum plus the transport's mechanical lines (pinch roller, capstan, motor and their harmonics) as steady sines where the profile lists them; the slow left-right difference; fast jitter (a common part and a part per channel) | one moving delay line per channel, read with a 48-tap windowed sinc |
 | amplitude flicker | deeper towards the treble; a common part and a part per channel | two short symmetric filters per channel, each times a slow random gain |
 | gain noise | a fast wobble (to a few hundred Hz) of each channel's level as a whole, deeper on the left, whose track runs along the tape's edge; only in profiles that have it | one more such filter per channel times its own random gain |
 | dropouts | short dips, drawn from the measured ones | random events |
@@ -74,6 +74,11 @@ numpy.
    makes them in overlapping blocks (1.4 s at the audio rate, 44 s at the 187 Hz control rate of the
    slow wobble), cross-faded so that the variance stays constant. The spectrum is the table's,
    smoothed over about two bins.
+   A narrow peak in such a table comes out as a tone whose level swells and fades, block by block
+   (and in the model, over the peak's own width): each block draws its level anew. The deck's
+   mechanical lines do not do that, so a profile can list them apart (`transport.lines`,
+   `differential.lines`: frequency and RMS level), and they are then generated as sines of
+   constant level with a random starting phase, by the engine and the model alike.
 
 ## How it is checked
 

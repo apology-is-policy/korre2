@@ -875,3 +875,138 @@ residual within 0.6 dB per octave (−24.2 / −25.1 dB at 1 kHz against −23.9
 above 100 Hz. At 30 Hz it rolls off 0.4-0.5 dB less than the tape and the left-minus-right signal in the
 31.5 Hz octave is ~1.2 dB stronger: the engine's short response filter (`tape/README.md`), which a set
 rendered by `emulator.py` does not have. Fitting the response table through the engine would remove it.
+
+## 2026-11-18 (later): two blind tests, Shallow on the metal tape, and steady flutter lines (model v0.6)
+
+### Fifth and sixth blind tests (owner, DT 770): the first metal pair told apart, the refined one not
+- `out/listening/MB3/blind` (metal v1, no gain noise): **the tape was identified fast.** The tell, in the
+  owner's words: after 1:15 ("Where are you, and I'm so sorry", fingers sliding on the frets in the
+  background) the emulation "is much more well separated" than the tape. The same family as the earlier
+  tells (Shallow v0.2: the piano too separated behind the loud vocal; A5: the fret slide sharper).
+- `out/listening/MB3_v2/blind` (metal v2 with gain noise, rendered by the C++ engine): **not identified**
+  (the owner took the emulation for the tape, "had to go on intuition"). One trial. v2 differs from v1 by
+  the gain noise, the refit of flicker and jitter around it, and the engine; the gain noise is the change
+  aimed at that tell, so it is the likely cause, not a proven one.
+- The owner asked for a blind test on Shallow, the song they know best.
+
+### The I Miss You profile on Shallow, unchanged: too clean
+`wmd6c_metalxr_v2` (fitted on MB3) rendered on MB2 with only the record level changed
+(`out/signature_MB2_xsong_v2.txt`), tape against emulation:
+
+| | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 13 kHz |
+|---|---|---|---|---|---|
+| residual, tape, L / R dB | −21.9 / −21.9 | −17.2 / −17.4 | −10.3 / −10.5 | −4.4 / −4.5 | +0.9 / +0.6 |
+| residual, emulation | −23.3 / −23.6 | −19.0 / −19.2 | −12.1 / −12.0 | −6.4 / −6.4 | −1.9 / −2.0 |
+
+Shallow's stretch simply wobbles more than I Miss You's, which follows it on the same side: timing
+at 6-12 Hz 5.42 against 3.25 µs (the capstan's line, 1.7 times), fast jitter 1.3-1.7 times, treble AM about
+twice. The static response differs a little too (0.2-0.8 dB at 30 Hz and 14 kHz; the delay between the
+channels 31.4 µs against 19.8). So, as on the chrome tape, wobble depth belongs to a stretch of tape, not
+to the tape.
+
+### A profile for Shallow's stretch, and where the fit got stuck
+`calibrate.py --init --base P` (new) starts a profile from the song's own response, levels, slow wobble
+and dropouts, and takes fast jitter, flicker, gain noise, noise and tones from a fitted profile of the same
+tape. Five rounds through the engine left the emulation 0.5-0.9 dB rougher than the tape at 1-4 kHz and
+0.3-0.7 dB cleaner at 13 kHz, with the flicker depth at 13 kHz climbing to 39%.
+Ingredients switched off one at a time (same draw): the gain noise is worth 0.1-0.2 dB of the residual at
+1 kHz and the fast jitter 0.2-0.4 dB. The rest is slow wobble left after the alignment's warp.
+
+### The slow flutter in fine steps
+The signature's timing bands are 2.9 Hz bins: "3-6 Hz" and "6-12 Hz" are both mostly the capstan's 7.5 Hz
+line, seen through the analysis window. `signature.py` now also keeps the timing left after the warp in
+0.125 Hz steps (1, 2 and 4 kHz octaves). Tape against the emulation of round 5, µs RMS at 1 kHz:
+
+| band, Hz | 3-4 | 5-6 | 7.2-7.8 | 8.4-10 | 10-12 | 14.5-15.7 | 18-21 | 31-36 | 48-60 | 60-80 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| tape | 1.50 | 1.68 | 6.18 | 1.51 | 1.72 | 1.81 | 1.40 | 0.96 | 1.99 | 1.12 |
+| emulation | 1.89 | 1.91 | 7.00 | 1.34 | 1.41 | 1.41 | 1.58 | 1.12 | 1.42 | 1.66 |
+
+The octave-wide rule had traded a capstan line that was 9-13% too strong against too little beside it. The
+calibration now corrects the transport from 6 Hz up in fine steps (quarter-octave smoothing, on the 1-4 kHz
+octaves), adds tracked and left-over timing at 3-6 Hz, and uses the tracked speed deviation below 3 Hz.
+One round brought the mids within 0.2 dB. (48-96 Hz belongs to the jitter table, which has one point per
+octave there and cannot follow this: in round 5 the 48-60 Hz band was 29% low and 60-80 Hz 48% high. Open.)
+
+### The flutter lines fade in the emulation and hold steady on the tape
+A second draw of the same profile (seed 4) then measured 1.2-1.5 dB cleaner than the tape at 8-13 kHz
+while the draw used for fitting matched. With the transport alone (no jitter, flicker or noise) the slow
+timing already read differently by octave, in µs at 3-6 Hz:
+
+| | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 13 kHz |
+|---|---|---|---|---|---|
+| tape | 4.88 | 4.37 | 4.49 | 4.30 | 4.06 |
+| emulation, transport only, seed 4 | 4.80 | 3.95 | 3.89 | 3.03 | 2.37 |
+
+A time shift is the same number of microseconds at every frequency, so that fall is the measurement
+saturating: at 13 kHz a shift of 20 µs is 1.6 radians. It saturates when the wobble comes in bursts. The
+7.5 Hz line's level in 10 s steps through the song (2 kHz octave, µs peak):
+
+| | first 80 s | the loud second half |
+|---|---|---|
+| tape | 1.1 2.1 1.5 2.2 1.4 0.8 2.5 2.1 | 4.2 5.1 7.8 6.8 5.9 4.1 6.6 8.2 7.9 8.0 7.4 |
+| emulation, seed 4 | 0.4 1.1 0.6 1.1 0.6 0.3 3.1 1.2 | 0.7 2.8 7.8 2.4 2.2 2.7 11.1 11.5 7.8 1.6 1.4 |
+| emulation, seed 1 | 0.3 0.9 1.6 0.5 0.5 0.3 1.1 1.7 | 2.0 2.3 3.5 4.6 9.8 6.1 5.7 11.9 10.8 3.4 1.8 |
+
+On the tape the capstan's flutter is steady. In the emulation it swings between nothing and one and a
+half times the tape's, differently in every draw. The cause is how a line is made: as a narrow peak in a
+noise spectrum. Narrow-band noise has a level that wanders (over the peak's width in the model, over each
+44 s block in the engine), and the peak's width in the table is the measurement's resolution, not the
+deck's. The fit had been making up for it with flicker: 41% at 13 kHz.
+(The low readings in the first 80 s are the measurement following the music's level: the steady-line
+emulation below shows them too.)
+
+### Model v0.6: steady lines (`transport.lines`)
+A profile can list the wobble's lines apart from the noise table, each a frequency and an RMS level; the
+model and the engine generate them as sines of constant level with a random starting phase.
+`calibrate.py --lines` moves the table's narrow peaks into lines (a peak 20 times above the spectrum around
+it, at most 0.45 Hz wide, at least 0.5 µs; peaks closer than 0.12 Hz are one line) and corrects each line
+with the table's correction at its frequency. Shallow's stretch: 17 lines, among them the pinch roller at
+1.67 Hz (14.3 µs) with harmonics at 3.34 and 5.01 Hz, the capstan at 7.53 Hz (11.6 µs) with 15.05,
+22.58, 30.10 and 37.63 Hz, and 18.25, 25.54, 32.84 and 43.58 Hz from the motor.
+After four rounds (`profiles/wmd6c_metalxr_v2_MB2.json`), tape against emulation:
+
+| | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 13 kHz |
+|---|---|---|---|---|---|
+| timing 3-6 Hz, µs: tape | 4.88 | 4.37 | 4.49 | 4.30 | 4.06 |
+| the draw fitted on (seed 1) | 4.98 | 4.47 | 4.55 | 4.18 | 3.92 |
+| another draw (seed 4, the listening set) | 4.55 | 4.02 | 4.20 | 4.02 | 3.86 |
+| residual, L / R dB: tape | −21.9 / −21.9 | −17.2 / −17.4 | −10.3 / −10.5 | −4.4 / −4.5 | +0.9 / +0.6 |
+| seed 1 | −21.9 / −21.8 | −17.1 / −17.1 | −10.2 / −10.1 | −4.5 / −4.5 | +1.0 / +1.1 |
+| seed 4 | −22.4 / −22.4 | −17.6 / −17.9 | −10.6 / −10.6 | −4.5 / −4.6 | +1.0 / +0.8 |
+
+The timing now reads alike at every octave, the two draws sit within 0.5 dB of the tape on either side,
+and the flicker depth fell back to 1.8 / 0.6 / 3.2 / 5.7% at 2 / 4 / 8 / 13 kHz (gain noise 1.9% left,
+1.0% right). The 7.5 Hz line through the song, seed 4: 0.9 1.9 1.6 1.9 1.4 0.9 2.2 1.5 | 3.6 4.2 6.8 5.7
+5.1 3.9 5.5 7.2 6.4 8.2 7.0, the tape's course about 12% lower.
+`verify_engine.py` on this profile: the engine against the Python chain run with the engine's own control
+signals, −151.9 dB as before; the wobble per band (table plus lines, against 20 minutes of the engine's
+transport) 17.59 / 13.32 / 3.78 / 2.99 µs against 17.18 / 13.38 / 3.78 / 2.98 at 0.5-3 / 3-12 / 12-30 /
+30-45 Hz; the strongest lines at 1.66, 7.52, 30.11 and 43.58 Hz (profile: 1.67, 7.53, 30.10, 43.58).
+Not done: the other profiles still carry their lines as noise peaks (`--lines` and a few rounds each);
+the left-right wobble's lines; whether the lines' level really is constant or drifts slowly (the tape's
+10 s means vary by about 15%, some of it the music).
+
+### The engine's bass response: not a matter of filter length
+The engine's response filter differs from the profile's table by −18 to −27 dB at 20-30 Hz. Doubling or
+quadrupling its length changes nothing; reproducing the table there needs hundreds of milliseconds
+*before* time zero (500 ms for −39 dB). That part of the table is ripple between its measured points, not
+the deck, which cannot answer before it is asked. The engine stays as it is.
+
+A profile fitted through the engine can absorb the difference, but only as a smooth trend. The first such
+fit corrected every 1/24-octave point: the filter cannot take up detail that fine in the bass, so each
+round asked for it again and added it again (the largest correction stayed at 0.3-0.6 dB for 13 rounds).
+The table ended up to 3-4 dB off the song's own measurement at single points below 100 Hz, with the
+engine's output still right (it ignores the ripple) and `emulator.py`, which applies the table exactly,
+11.5 dB down on the engine in the 20-60 Hz band instead of the usual 28 (`verify_engine.py`, check 4).
+The calibration now smooths its response corrections over half an octave below 150 Hz
+(`smooth_response_step`). This profile's table was reset to the measurement there and refitted for three
+rounds: it is within 0.2 dB of the measurement from 30 Hz up (1 dB lower at 20-30 Hz on the left), and
+the engine's output is within 0.2 dB of the tape from 30 Hz to 14 kHz (the I Miss You set: 0.4-0.5 dB at
+30 Hz).
+
+### Listening set
+`out/listening/MB2/` (seed 4, engine render, README with the figures above; blind pair). The capture
+clipped in three moments of this song (23 samples, left); `render.py` now gives the emulated files the
+same ceiling at the capture's level for tracks marked `clipped` (28 samples cut). An earlier set with
+fading lines is kept as `out/listening/MB2_INVALID_fading_flutter_lines/`.

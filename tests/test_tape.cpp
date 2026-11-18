@@ -5,13 +5,16 @@
 // reproducibility, independence of how the audio is cut into blocks). That the engine reproduces the
 // model itself is checked by analysis/verify_engine.py.
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <numbers>
 #include <sstream>
+#include <string>
 #include <vector>
 
 #include "check.h"
@@ -589,6 +592,157 @@ void test_engine()
     CHECK(threw);
 }
 
+// The wobble's steady lines: sines of constant level, where the table's noise would fade in and out.
+void test_lines()
+{
+    const auto loaded = load_profile(profiles / "wmd6c_xlii_sideB.json");
+    CHECK(loaded.has_value());
+    if (!loaded)
+    {
+        return;
+    }
+    CHECK(loaded->transport.lines.empty() && loaded->differential.lines.empty()); // an older profile has none
+    // The first profile with lines: Shallow's stretch of the metal tape, the capstan's 7.53 Hz among them.
+    {
+        const auto shallow = load_profile(profiles / "wmd6c_metalxr_v2_MB2.json");
+        CHECK_MSG(shallow.has_value(), shallow ? std::string() : shallow.error());
+        if (shallow)
+        {
+            CHECK(shallow->transport.lines.size() == 17 && shallow->gain_noise.has_value());
+            bool capstan = false;
+            for (const auto& l : shallow->transport.lines)
+            {
+                capstan = capstan || (std::fabs(l.hz - 7.53) < 0.02 && l.us > 5.0 && l.us < 20.0);
+            }
+            CHECK(capstan);
+        }
+    }
+
+    // Read from the profile's text, and refused when a line makes no sense.
+    {
+        std::ifstream file(profiles / "wmd6c_xlii_sideB.json");
+        std::stringstream text;
+        text << file.rdbuf();
+        const std::string base = text.str();
+        const auto at = base.find("\"crossover_hz\":");
+        CHECK(at != std::string::npos);
+        const auto with = [&](const std::string& section) { return base.substr(0, at) + section + base.substr(at); };
+        const auto good = parse_profile(with(R"("lines":[{"hz":7.52,"us":6.5},{"hz":15.04,"us":1.5}],)"));
+        CHECK_MSG(good.has_value(), good ? std::string() : good.error());
+        if (good)
+        {
+            CHECK(good->transport.lines.size() == 2 && good->transport.lines[1].hz == 15.04 && good->transport.lines[0].us == 6.5);
+        }
+        const auto bad = parse_profile(with(R"("lines":[{"hz":0,"us":6.5}],)"));
+        CHECK(!bad.has_value() && bad.error().find("lines") != std::string::npos);
+        const auto incomplete = parse_profile(with(R"("lines":[{"hz":7.5}],)"));
+        CHECK(!incomplete.has_value());
+    }
+
+    profile p = *loaded;
+    std::fill(p.transport.psd_us2_per_hz.begin(), p.transport.psd_us2_per_hz.end(), 0.0);
+    std::fill(p.differential.psd_us2_per_hz.begin(), p.differential.psd_us2_per_hz.end(), 0.0);
+    const double crossover = p.transport.crossover_hz; // 45 Hz: the fade runs from 40 to 50
+    p.transport.lines = {{7.5, 6.0}, {crossover + 2.0, 4.0}, {crossover + 15.0, 3.0}};
+    p.differential.lines = {{1.5, 2.0}};
+
+    const double sr = 44100;
+    const std::size_t frames = 4 * 44100; // whole periods of every line but the faded one
+    settings s;
+    s.sample_rate = sr;
+    const std::vector<float> silence(frames * 2, 0.0f);
+    std::vector<float> out(silence.size());
+    const auto traced = [&](std::uint64_t seed) {
+        settings t = s;
+        t.seed = seed;
+        engine e(p, t);
+        trace r;
+        e.process(silence, out, r);
+        return r;
+    };
+    const trace a = traced(1);
+
+    // Level of one frequency in a stretch of a signal (peak), by projection.
+    const auto level_at = [&](const std::vector<double>& x, double hz, std::size_t from, std::size_t n) {
+        double re = 0, im = 0;
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            const double w = 2 * std::numbers::pi * hz * static_cast<double>(from + i) / sr;
+            re += x[from + i] * std::cos(w);
+            im += x[from + i] * std::sin(w);
+        }
+        return 2.0 * std::sqrt(re * re + im * im) / static_cast<double>(n);
+    };
+    const auto rms = [](const std::vector<double>& x) {
+        double sum = 0;
+        for (const double v : x)
+        {
+            sum += v * v;
+        }
+        return std::sqrt(sum / static_cast<double>(x.size()));
+    };
+
+    // The 7.5 Hz line has its level, and the same level in every second of the run.
+    CHECK(a.transport.size() == frames);
+    for (std::size_t second = 0; second < 4; ++second)
+    {
+        const double peak = level_at(a.transport, 7.5, second * 44100, 44100);
+        CHECK_MSG(std::fabs(peak / (std::numbers::sqrt2 * 6.0) - 1.0) < 0.02, "7.5 Hz line in second " + std::to_string(second) + ": " + std::to_string(peak));
+    }
+    // The line 2 Hz above the crossover is 30% of the way down the fade (in power); the one 15 Hz above is gone.
+    const double faded = 4.0 * std::sqrt(0.3);
+    CHECK_NEAR(level_at(a.transport, crossover + 2.0, 0, frames), std::numbers::sqrt2 * faded, 0.05);
+    CHECK(level_at(a.transport, crossover + 15.0, 0, frames) < 1e-6);
+    CHECK_NEAR(rms(a.transport), std::sqrt(6.0 * 6.0 + faded * faded), 0.08);
+    // The left-minus-right wobble has its own line.
+    CHECK_NEAR(rms(a.differential), 2.0, 0.02);
+    CHECK_NEAR(level_at(a.differential, 1.5, 0, frames), std::numbers::sqrt2 * 2.0, 0.02);
+
+    // Another seed: other phases, the same levels. The same seed: the same signal.
+    const trace b = traced(2), again = traced(1);
+    CHECK(b.transport != a.transport);
+    CHECK_NEAR(level_at(b.transport, 7.5, 0, frames), std::numbers::sqrt2 * 6.0, 0.05);
+    CHECK(again.transport == a.transport && again.differential == a.differential);
+
+    // The lines move the sound: a 1 kHz tone through the engine with only the transport on comes out
+    // shifted in time by up to the lines' peak.
+    {
+        profile only = *loaded;
+        std::fill(only.transport.psd_us2_per_hz.begin(), only.transport.psd_us2_per_hz.end(), 0.0);
+        only.transport.lines = {{7.5, 20.0}};
+        settings t = s;
+        t.ingredients = static_cast<std::uint32_t>(ingredient::transport);
+        t.record_gain_db = stereo{0.0, 0.0};
+        t.polarity = 1;
+        engine e(only, t);
+        const std::size_t lag = e.delay().total;
+        std::vector<float> in(frames * 2), result(frames * 2);
+        for (std::size_t i = 0; i < frames; ++i)
+        {
+            in[2 * i] = in[2 * i + 1] = static_cast<float>(0.5 * std::sin(2 * std::numbers::pi * 1000.0 * static_cast<double>(i) / sr));
+        }
+        e.process(in, result);
+        // The phase of the 1 kHz tone in 20 ms pieces, as a time shift in microseconds.
+        const std::size_t piece = 882;
+        double lowest = 1e9, highest = -1e9;
+        for (std::size_t start = lag + 4410; start + piece + lag < frames; start += piece)
+        {
+            double re = 0, im = 0;
+            for (std::size_t i = 0; i < piece; ++i)
+            {
+                const double w = 2 * std::numbers::pi * 1000.0 * static_cast<double>(start + i - lag) / sr;
+                re += static_cast<double>(result[2 * (start + i)]) * std::sin(w);
+                im += static_cast<double>(result[2 * (start + i)]) * std::cos(w);
+            }
+            const double shift_us = std::atan2(im, re) / (2 * std::numbers::pi * 1000.0) * 1e6;
+            lowest = std::min(lowest, shift_us);
+            highest = std::max(highest, shift_us);
+        }
+        // +-28.3 us peak; a 20 ms piece averages a 7.5 Hz swing down by about 4%
+        CHECK_MSG(highest - lowest > 2 * 28.3 * 0.9 && highest - lowest < 2 * 28.3 * 1.02, "swing of the tone: " + std::to_string(highest - lowest) + " us");
+    }
+}
+
 } // namespace
 
 int main()
@@ -599,5 +753,6 @@ int main()
     test_design();
     test_profile();
     test_engine();
+    test_lines();
     return check::result();
 }

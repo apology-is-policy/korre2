@@ -54,6 +54,16 @@ struct profile
         std::vector<double> freqs;
         std::vector<double> psd_us2_per_hz;
         double crossover_hz = 0; ///< 0: no fade (the differential part)
+
+        /// A rotating part's own wobble (the capstan's 7.5 Hz, its harmonics, the motor): a steady
+        /// sine. Kept apart from the table because a narrow peak in a noise spectrum fades in and out
+        /// over tens of seconds, which the deck's lines do not. Absent in older profiles.
+        struct line
+        {
+            double hz = 0;
+            double us = 0; ///< RMS, microseconds
+        };
+        std::vector<line> lines;
     };
     wobble transport;
     wobble differential; ///< left minus right

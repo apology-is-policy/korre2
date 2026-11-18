@@ -29,6 +29,9 @@ OCT = [(707, 1414, 1000), (1414, 2828, 2000), (2828, 5657, 4000), (5657, 11314, 
 RATES = [(3, 6), (6, 12), (12, 24), (24, 48), (48, 96), (96, 192), (192, 384), (384, 768), (768, 1536), (1536, 2800)]
 DEV_RATES = [(0.3, 0.75), (0.75, 1.5), (1.5, 3), (3, 6), (6, 12), (12, 20)]
 NPER = 16384
+FINE_OCTS = (1000, 2000, 4000)  # octaves for the fine timing spectrum: where the music's body is
+FINE_FS = 375.0  # its sample rate, Hz
+FINE_SECONDS = 8.0  # and segment length: 0.125 Hz steps
 EPS_REL = 0.25
 
 
@@ -50,7 +53,9 @@ def signature(tid: str, cache: bool = True) -> dict:
     path = OUT / f"sig_{tid}.pkl"
     aligned = OUT / f"{tid}_aligned.npz"
     if cache and path.exists() and path.stat().st_mtime > aligned.stat().st_mtime:
-        return pickle.loads(path.read_bytes())
+        cached = pickle.loads(path.read_bytes())
+        if cached.get("pm_psd"):  # absent in signatures cached before the fine timing spectrum existed
+            return cached
     t = track(tid)
     sr, src, tape, z, trim = load(t.id)
     fh, Ph = hiss_psd(t, sr)
@@ -77,7 +82,7 @@ def signature(tid: str, cache: bool = True) -> dict:
 
     # per octave: demodulated AM and timing spectra, L/R coherence, residual level
     sig["am"], sig["pm"], sig["am_coh"], sig["pm_coh"], sig["left_db"] = {}, {}, {}, {}, {}
-    sig["am_psd"], sig["pm_psd"] = {}, {}
+    sig["pm_psd"] = {}
     for lo, hi, fc in OCT:
         hi = min(hi, 0.45 * sr)
         fmax = (hi - lo) / 2
@@ -103,6 +108,16 @@ def signature(tid: str, cache: bool = True) -> dict:
             _, Pp = signal.welch(d.imag, sr, nperseg=NPER)
             am.append(rate_sums(f, Pa / norm, RATES, fmax))
             pm.append(rate_sums(f, Pp / norm * k_us, RATES, fmax))
+        if fc in FINE_OCTS:
+            # The slow end of the timing in fine steps: the bands above are 2.9 Hz bins, which cannot tell
+            # the capstan's 7.5 Hz from what lies beside it.
+            q = int(round(sr / FINE_FS))
+            fine = []
+            for d, norm in dem:
+                slow = signal.resample_poly(d.imag, 1, q)
+                ff, Pf = signal.welch(slow, sr / q, nperseg=int(FINE_SECONDS * sr / q))
+                fine.append(Pf / norm * k_us)
+            sig["pm_psd"][fc] = dict(f=ff, psd=np.mean(fine, axis=0))  # us^2/Hz, mean of L and R
         cohs = {}
         for kind, fn in (("am", np.real), ("pm", np.imag)):
             fc_, C = signal.coherence(fn(dem[0][0]), fn(dem[1][0]), sr, nperseg=NPER)

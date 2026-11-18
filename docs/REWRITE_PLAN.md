@@ -61,20 +61,32 @@ cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DKORRE_SANITIZE=thread && cma
    sets (kept separate from the tape model).
 
 ## Next
-- Listen. Real output through PortAudio, then tape against bypass on a few songs.
 - Per-track or per-profile record level in the interface (the engine takes it; the player uses the level
   the profile was fitted at).
 - Gapless transition between tracks (the decoder thread can open the next file ahead of time).
 - The treble-saturation stage's effect on the mids (see Open).
 - HRIR stage.
 
-From the metal refinement pass of 2026-11-18 (`analysis/FINDINGS.md`):
-- Fit the response table through the engine (`calibrate.py --engine` without `--only`), so that the
-  engine's short bass filter no longer leaves 0.4-0.5 dB at 30 Hz against the tape.
-- Cross-song check of `wmd6c_metalxr_v2` on Forever Young (MB7; record gain L -5.61 / R -6.15 dB).
+Done on 2026-11-18 after the owner's first sessions with the player (their screenshots show it playing
+through a real output device; that path still has no test of its own): the spectrum redone (stage 6), a level meter window (`player/meter_window.*`,
+`level_meter.*`: RMS or peak reading, a sticky mark per channel), the windows' default places (queue and
+selector left, player in the middle, meter right), and the player window shown from the start.
+
+From the tape model (`analysis/FINDINGS.md`, 2026-11-18):
+- Model v0.6 is in the engine: the wobble's mechanical lines as steady sines (`transport.lines`). Only
+  the Shallow profile of the metal tape (`wmd6c_metalxr_v2_MB2`) has them so far. The other profiles
+  still carry their lines as peaks in the noise table, which fade in and out: `calibrate.py --lines` and
+  a few rounds each.
+- Wobble depth belongs to a stretch of tape (Shallow's is 1.7 times I Miss You's on the same side). A
+  profile per song is the honest unit for blind tests; for the player, a tape profile needs a typical
+  depth or a depth that moves along the tape.
+- A profile fitted through the engine absorbs most of the engine's bass-filter difference (0.1-0.3 dB at
+  30-50 Hz left). A longer filter does not help (FINDINGS).
+- The jitter table has one point per octave between 48 and 96 Hz and cannot follow the lines there.
 - Gain noise for the chrome profiles (side A shows the same left-right difference).
-- Pin down the 13 kHz flicker against the fast jitter in the v2 fit; the left channel's extra timing at 1-2 kHz.
-- Once the blind pairs are judged, keep one metal profile and drop the other.
+- The left channel's extra timing at 1-2 kHz.
+- The owner could not tell `MB3_v2` from the tape and told `MB3` (v1) apart: `wmd6c_metalxr_v2` is the
+  metal profile to keep; `wmd6c_metalxr` (v1) can go once nothing refers to it.
 
 ## Decisions taken as defaults (say so if you want otherwise)
 - Keep PortAudio and the vendored imtui / pffft / minimp3.

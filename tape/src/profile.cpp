@@ -92,6 +92,31 @@ void ascending(const std::vector<double>& f, std::size_t at_least, bool positive
     }
 }
 
+std::vector<profile::wobble::line> lines(const json& object, const std::string& where)
+{
+    std::vector<profile::wobble::line> out;
+    if (!object.contains("lines") || object.at("lines").is_null())
+    {
+        return out;
+    }
+    if (!object.at("lines").is_array())
+    {
+        throw profile_error{"\"" + where + "lines\" is not a list"};
+    }
+    for (const json& e : object.at("lines"))
+    {
+        profile::wobble::line l;
+        l.hz = number(e, "hz", where + "lines.");
+        l.us = number(e, "us", where + "lines.");
+        if (l.hz <= 0 || l.us < 0)
+        {
+            throw profile_error{where + "lines: a line needs a positive frequency and a level that is not negative"};
+        }
+        out.push_back(l);
+    }
+    return out;
+}
+
 void non_negative(const std::vector<double>& v, const std::string& what)
 {
     for (const double x : v)
@@ -158,6 +183,7 @@ profile build(const json& j)
         ascending(p.transport.freqs, 2, false, "transport");
         same_length(p.transport.freqs, p.transport.psd_us2_per_hz, "transport");
         non_negative(p.transport.psd_us2_per_hz, "transport");
+        p.transport.lines = lines(tr, "transport.");
 
         const json& df = member(j, "differential", "");
         p.differential.freqs = table(df, "freqs", "differential.");
@@ -165,6 +191,7 @@ profile build(const json& j)
         ascending(p.differential.freqs, 2, false, "differential");
         same_length(p.differential.freqs, p.differential.psd_us2_per_hz, "differential");
         non_negative(p.differential.psd_us2_per_hz, "differential");
+        p.differential.lines = lines(df, "differential.");
     }
     {
         const json& jt = member(j, "jitter", "");

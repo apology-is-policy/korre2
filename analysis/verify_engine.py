@@ -202,7 +202,12 @@ def main():
     # these tables are on a grid as coarse as the lowest band is wide and fall steeply there, so the
     # table's share of a band is the sum of its points, as a synthesised signal holds it
     by_points = lambda fr, P: np.array([np.sqrt(np.sum(P[(fr >= lo) & (fr < hi)]) * (fr[1] - fr[0])) for lo, hi in slow_bands])
-    row("transport: table", by_points(tf, tP))
+    # a profile's steady lines (transport.lines) are part of the wobble: their power is added to the
+    # table's in the band each falls in, with the table's fade at the crossover
+    tlines = tp.get("lines", [])
+    line_power = np.array([sum(l["us"] ** 2 * float(np.clip((fx + 5 - l["hz"]) / 10, 0, 1)) for l in tlines if lo <= l["hz"] < hi)
+                           for lo, hi in slow_bands])
+    row("transport: table" + (" + lines" if tlines else ""), np.sqrt(by_points(tf, tP) ** 2 + line_power))
     row("transport: engine", band_levels(long_transport, long_sr / dec, slow_bands, 1 << 15))
     row("differential: table", by_points(np.array(df["freqs"]), np.array(df["psd_us2_per_hz"])))
     row("differential: engine", band_levels(long_diff, long_sr / dec, slow_bands, 1 << 15))
@@ -210,7 +215,9 @@ def main():
     lines = []
     for lo, hi in ((1, 3), (5, 12), (20, 32), (40, 48)):
         m, mt = (f > lo) & (f < hi), (tf > lo) & (tf < hi)
-        lines.append(f"{lo}-{hi} Hz: table {tf[mt][np.argmax(tP[mt])]:.2f}, engine {f[m][np.argmax(P[m])]:.2f}")
+        here = [l for l in tlines if lo < l["hz"] < hi]
+        wanted = max(here, key=lambda l: l["us"])["hz"] if here else tf[mt][np.argmax(tP[mt])]
+        lines.append(f"{lo}-{hi} Hz: {'line' if here else 'table'} {wanted:.2f}, engine {f[m][np.argmax(P[m])]:.2f}")
     print("    strongest line in " + "; ".join(lines))
 
     fast_bands = [(45, 90), (90, 180), (180, 360), (360, 720), (720, 1440), (1440, 2880), (2880, 4000)]

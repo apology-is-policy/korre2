@@ -35,6 +35,7 @@ JITTER_TOP_HZ = 4000.0  # fast timing is assumed flat from the last measured ban
 AM_KAPPA = 0.7  # demodulated AM reads ~0.7x the injected AM power (synthetic test, FINDINGS)
 TIMING_OCTS = (2000, 4000, 8000)  # octaves where the timing estimate is cleanest
 FLICKER_RATES = slice(0, 7)  # rate bands 3..384 Hz carry the flicker depth estimate
+FINE_FROM_HZ, FINE_TO_HZ = 6.0, 48.0  # the transport is corrected in fine steps from the timing left after the warp
 # Gain noise: a fast wobble of each channel's level as a whole (the same depth at every frequency),
 # with a depth per channel. Its evidence is the AM at 96..384 Hz in the 1 and 2 kHz octaves, where the
 # timing's own contribution to the AM is smallest and the flicker has little left.
@@ -58,6 +59,65 @@ def mean_pm(sig, octs=TIMING_OCTS):
     return np.nanmean([sig["pm"][fc].mean(axis=0) for fc in octs], axis=0)
 
 
+def fine_timing(sig):
+    """The fine spectrum of the timing left after the warp (signature's pm_psd, mean of its octaves):
+    frequencies, the spectrum smoothed over a quarter octave, and the spectrum as measured."""
+    octs = sorted(sig["pm_psd"])
+    f = sig["pm_psd"][octs[0]]["f"]
+    P = np.mean([sig["pm_psd"][o]["psd"] for o in octs], axis=0)
+    c = np.concatenate([[0.0], np.cumsum(P)])
+    lo = np.searchsorted(f, f * 2 ** (-1 / 8), side="left")
+    hi = np.maximum(np.searchsorted(f, f * 2 ** (1 / 8), side="right"), lo + 1)
+    return f, (c[hi] - c[lo]) / (hi - lo), P
+
+
+def split_lines(prof: dict, min_us: float = 0.5, min_ratio: float = 20.0, max_width_hz: float = 0.45) -> list[dict]:
+    """Move the narrow peaks of the transport's spectrum (the pinch roller, the capstan, the motor and
+    their harmonics) out of the table into `lines`: sines of constant level. As a narrow peak in a noise
+    spectrum each would fade in and out over tens of seconds; on the tape they hold steady (FINDINGS,
+    2026-11-18). A peak counts as a line if it stands `min_ratio` times above the spectrum around it,
+    is at most `max_width_hz` wide and holds `min_us` RMS; the table keeps the level around it."""
+    tr = prof["transport"]
+    f, P = np.array(tr["freqs"]), np.array(tr["psd_us2_per_hz"])
+    df = f[1] - f[0]
+    base = np.empty_like(P)
+    for i in range(len(f)):
+        h = max(20, int(0.12 * f[i] / df))
+        base[i] = np.median(P[max(0, i - h): i + h + 1])
+    hot = (P > min_ratio * base) & (f >= 0.8) & (f <= tr["crossover_hz"] + 5)
+    lines, i = list(tr.get("lines", [])), 0
+    while i < len(f):
+        if not hot[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(f) and hot[j + 1]:
+            j += 1
+        lo, hi = max(i - 2, 0), min(j + 2, len(f) - 1)  # the peak's skirts belong to it
+        excess = np.clip(P[lo:hi + 1] - base[lo:hi + 1], 0, None)
+        us = float(np.sqrt(excess.sum() * df))
+        if us >= min_us and f[hi] - f[lo] <= max_width_hz:
+            lines.append(dict(hz=float((f[lo:hi + 1] * excess).sum() / excess.sum()), us=us))
+            P[lo:hi + 1] = np.minimum(P[lo:hi + 1], base[lo:hi + 1])
+        i = j + 1
+    tr["psd_us2_per_hz"] = P.tolist()
+    tr["lines"] = merge_close(lines)
+    return tr["lines"]
+
+
+def merge_close(lines: list[dict], within_hz: float = 0.12) -> list[dict]:
+    """Lines closer together than the measurement can tell apart are one line: two sines that close
+    would beat, which is the fading the lines are there to avoid."""
+    out: list[dict] = []
+    for line in sorted(lines, key=lambda l: l["hz"]):
+        if out and line["hz"] - out[-1]["hz"] < within_hz:
+            a, b = out[-1]["us"] ** 2, line["us"] ** 2
+            out[-1] = dict(hz=(out[-1]["hz"] * a + line["hz"] * b) / (a + b), us=float(np.sqrt(a + b)))
+        else:
+            out.append(dict(line))
+    return out
+
+
 def rate_share(freqs, psd, lo, hi):
     """Share of a unit-variance process's power between lo and hi Hz, for a log-log rate table."""
     def power(a, b):
@@ -77,7 +137,11 @@ def add_gain_noise(prof: dict):
 
 
 # ---------------------------------------------------------------- initial profile
-def init_profile(tid: str, name: str, tape_sig: dict) -> dict:
+def init_profile(tid: str, name: str, tape_sig: dict, base: dict | None = None) -> dict:
+    """A starting profile from the song's own measurements. With `base` (a fitted profile of the same
+    deck and tape, from another song): this song's response, levels, slow wobble and dropouts, and the
+    base's fast jitter, flicker, gain noise, noise, tones and saturation as the starting point, which
+    are closer to the end than the raw measurements are."""
     st = song_stats(tid)
     prof = dict(version=2, name=name, created=str(date.today()),
                 songs=[dict(id=st["id"], title=st["title"], side=st["side"], gain_db=st["gain_db"],
@@ -96,6 +160,12 @@ def init_profile(tid: str, name: str, tape_sig: dict) -> dict:
     if ref_rms is None:
         ref_rms = song_stats(CUBIC_SONG).get("cubic_ref_rms_dbfs")
     prof["saturation"] = dict(cubic_rel_db=CUBIC_REL_DB, ref_rms_dbfs=ref_rms, source=CUBIC_SONG)
+    if base is not None:
+        for key in ("jitter", "flicker", "gain_noise", "hiss", "tones", "saturation"):
+            if key in base:
+                prof[key] = json.loads(json.dumps(base[key]))
+        prof["base"] = base.get("name", "")
+        return prof
 
     # fast jitter: the tape's demodulated timing PSD above 48 Hz, split by the L/R coherence
     c, w = centres(RATES), widths(RATES)
@@ -136,6 +206,20 @@ def split_flicker(prof):
     fl["depth_indep"] = (d * np.sqrt(1 - rho)).tolist()
 
 
+def smooth_response_step(d: np.ndarray) -> np.ndarray:
+    """A correction to the response table, smoothed over 5/24 octave, and below 200 Hz over half an
+    octave. The engine's response filter is nearly causal and cannot follow detail finer than that in
+    the bass: a point-by-point correction there is never taken up, so it comes back every round and
+    piles up in the table as ripple of several dB that describes nothing (found on the first profile
+    fitted through the engine, FINDINGS 2026-11-18)."""
+    f = np.array(EQ_GRID)
+    fine = np.convolve(d, np.ones(5) / 5, mode="same")
+    pad = 6
+    coarse = np.convolve(np.pad(d, pad, mode="edge"), np.ones(2 * pad + 1) / (2 * pad + 1), mode="valid")
+    share = np.clip(np.log2(300.0 / f) / np.log2(300.0 / 150.0), 0.0, 1.0)  # 1 below 150 Hz, 0 above 300 Hz
+    return share * coarse + (1 - share) * fine
+
+
 # ---------------------------------------------------------------- one correction step
 def update(prof: dict, tape: dict, emu: dict) -> list[str]:
     notes = []
@@ -145,8 +229,7 @@ def update(prof: dict, tape: dict, emu: dict) -> list[str]:
         d_eq = np.array(tape["eq"][ch]) - np.array(emu["eq"][ch])
         d_ph = np.array(tape["phase"][ch]) - np.array(emu["phase"][ch])
         d_ph = (d_ph + np.pi) % (2 * np.pi) - np.pi
-        k = np.ones(5) / 5  # 5 x 1/24 octave
-        d_eq, d_ph = np.convolve(d_eq, k, mode="same"), np.convolve(d_ph, k, mode="same")
+        d_eq, d_ph = smooth_response_step(d_eq), smooth_response_step(d_ph)
         prof["eq"][ch] = (np.array(prof["eq"][ch]) + a * d_eq).tolist()
         prof["eq"][f"phase_{ch}"] = (np.array(prof["eq"][f"phase_{ch}"]) + a * d_ph).tolist()
         dg = tape["gain_db"][ch] - emu["gain_db"][ch]
@@ -155,21 +238,36 @@ def update(prof: dict, tape: dict, emu: dict) -> list[str]:
         notes.append(f"{ch}: gain {dg:+.2f} dB, eq max |d| {np.max(np.abs(d_eq)):.2f} dB, "
                      f"phase max |d| {np.degrees(np.max(np.abs(d_ph))):.1f} deg")
 
-    # slow transport. Below 6 Hz the delay tracker follows the wobble, so the tracked speed deviation is
-    # the evidence. Above that it cannot (85 ms windows, 150 ms smoothing): its reading there is mostly
-    # its own noise, and extra flutter lands in the timing left after the warp instead. So from 6 Hz up
-    # the demodulated timing decides. (Matching the tracked value up there made the metal fit diverge.)
+    # slow transport. Three kinds of evidence, by how well the delay tracker follows the wobble:
+    #   below 3 Hz it follows it, and the tracked speed deviation says how much there is;
+    #   at 3-6 Hz it follows part of it: tracked and left-over timing are added;
+    #   from 6 Hz up it cannot (85 ms windows, 150 ms smoothing; its reading there is mostly its own
+    #   noise, and matching that made the first metal fit diverge), so the timing left after the warp
+    #   decides, in fine steps: the capstan's 7.5 Hz line, its harmonics and the motor's lines each
+    #   get their own correction. (Octave-wide bands, as before, traded a line that was too strong
+    #   against too little beside it.) The timing is judged on the 1-4 kHz octaves.
     tr = prof["transport"]
     f = np.array(tr["freqs"])
-    low = [k for k, (lo, hi) in enumerate(DEV_RATES) if hi <= 6]
-    r_dev = (np.array(tape["dev"]) / np.array(emu["dev"]))[low]
-    hi_bands = [k for k, (lo, hi) in enumerate(RATES) if 6 <= lo < 48]
-    r_pm = (mean_pm(tape) / mean_pm(emu))[hi_bands]
-    pts_f = np.concatenate([centres(DEV_RATES)[low], centres(RATES)[hi_bands]])
-    pts_r = np.clip(np.concatenate([r_dev, r_pm]), 0.5, 2.0) ** a
+    low = [k for k, (lo, hi) in enumerate(DEV_RATES) if hi <= 3]
+    r_low = (np.array(tape["dev"]) / np.array(emu["dev"]))[low]
+    k36 = DEV_RATES.index((3, 6))
+    tracked = lambda sig: sig["dev"][k36] / 1e4 / (2 * np.pi * np.sqrt(18.0)) ** 2 * 1e12  # %^2 -> us^2 at 4.2 Hz
+    ff, Pt, raw_t = fine_timing(tape)
+    _, Pe, raw_e = fine_timing(emu)
+    band = (ff >= 3) & (ff < 6)
+    df = ff[1] - ff[0]
+    r36 = (tracked(tape) + raw_t[band].sum() * df) / (tracked(emu) + raw_e[band].sum() * df)
+    fine = (ff >= FINE_FROM_HZ) & (ff <= FINE_TO_HZ)
+    pts_f = np.concatenate([centres(DEV_RATES)[low], [np.sqrt(18.0)], ff[fine]])
+    pts_r = np.clip(np.concatenate([r_low, [r36], Pt[fine] / Pe[fine]]), 0.5, 2.0) ** a
     corr = np.exp(np.interp(np.log(np.maximum(f, 0.1)), np.log(pts_f), np.log(pts_r)))
     tr["psd_us2_per_hz"] = (np.array(tr["psd_us2_per_hz"]) * corr).tolist()
-    notes.append("transport x " + " ".join(f"{v:.2f}" for v in pts_r))
+    for line in tr.get("lines", []):  # the steady lines follow the same correction, at their own frequency
+        line["us"] *= float(np.exp(0.5 * np.interp(np.log(line["hz"]), np.log(pts_f), np.log(pts_r))))
+    n_low = len(low) + 1
+    notes.append("transport x " + " ".join(f"{v:.2f}" for v in pts_r[:n_low])
+                 + f" | {FINE_FROM_HZ:g}-{FINE_TO_HZ:g} Hz in fine steps x {pts_r[n_low:].min():.2f}..{pts_r[n_low:].max():.2f}"
+                 + f" (7.5 Hz line x {pts_r[n_low:][np.argmin(np.abs(ff[fine] - 7.5))]:.2f})")
 
     # fast jitter: total per rate band, and the common share from the L/R coherence at 8 kHz
     j = prof["jitter"]
@@ -243,7 +341,11 @@ def summary(prof):
     integ = lambda f, P: float(np.sqrt(np.trapezoid(P, f)))
     ff = np.geomspace(j["freqs"][0], j["freqs"][-1], 400)
     P = lambda key: np.exp(np.interp(np.log(ff), np.log(j["freqs"]), np.log(np.maximum(j[key], 1e-30))))
-    return (f"transport {integ(tr['freqs'], tr['psd_us2_per_hz']):.1f} us RMS; jitter common "
+    lines = tr.get("lines", [])
+    strongest = sorted(lines, key=lambda l: -l["us"])[:3]
+    line_note = (f" + {len(lines)} steady lines, {np.sqrt(sum(l['us'] ** 2 for l in lines)):.1f} us ("
+                 + ", ".join(f"{l['hz']:.2f} Hz {l['us']:.2f}" for l in strongest) + ")") if lines else ""
+    return (f"transport {integ(tr['freqs'], tr['psd_us2_per_hz']):.1f} us RMS{line_note}; jitter common "
             f"{integ(ff, P('psd_common_us2_per_hz')):.2f} us, per channel {integ(ff, P('psd_indep_us2_per_hz')):.2f} us; "
             f"flicker depth % at 1k..13k " + " ".join(f"{d * 100:.2f}" for d in fl["depth_total"])
             + (f"; gain noise % L {prof['gain_noise']['depth_L'][0] * 100:.2f} R {prof['gain_noise']['depth_R'][0] * 100:.2f}"
@@ -270,13 +372,20 @@ def main():
     ap.add_argument("--track", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--init", action="store_true")
+    ap.add_argument("--base", help="with --init: a fitted profile of the same deck and tape (another song). The new "
+                                   "profile takes this song's own response, levels, slow wobble and dropouts, and "
+                                   "starts from the base's fast jitter, flicker, gain noise, noise and tones")
     ap.add_argument("--refresh-noise", action="store_true",
                     help="replace the profile's noise with the recorded-gap noise before iterating")
     ap.add_argument("--iters", type=int, default=3)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--only", default=None,
                     help="comma-separated profile sections to correct, e.g. 'transport,jitter': everything else "
-                         "stays as it is (to adapt a side profile's wobble depth to one stretch of tape)")
+                         "stays as it is (to adapt a side profile's wobble depth to one stretch of tape). Sections: "
+                         "eq, gain_db, songs, transport, jitter, flicker, gain (the gain noise)")
+    ap.add_argument("--lines", action="store_true",
+                    help="move the narrow peaks of the transport's spectrum into steady lines, if the profile has "
+                         "none yet (a peak in the noise table fades in and out; the deck's lines do not)")
     ap.add_argument("--gain-noise", action="store_true",
                     help="add gain noise to the profile if it has none (it starts at nothing)")
     ap.add_argument("--engine", nargs="?", const=str(Path(__file__).resolve().parent.parent / "build" / "bin" / "korre-render"),
@@ -290,9 +399,11 @@ def main():
     path = PROFILES / f"{args.name}.json"
     tape_sig = signature(args.track)
     if args.init:
-        prof = init_profile(args.track, args.name, tape_sig)
-        from fitprofile import steady_tones
-        prof["tones"] = steady_tones(args.track, whole_side=args.tones == "side")
+        base = json.loads(Path(args.base).read_text()) if args.base else None
+        prof = init_profile(args.track, args.name, tape_sig, base)
+        if base is None:
+            from fitprofile import steady_tones
+            prof["tones"] = steady_tones(args.track, whole_side=args.tones == "side")
         path.write_text(json.dumps(prof, separators=(",", ":")))
         print(f"initial profile -> {path}\n  {summary(prof)}", flush=True)
     prof = json.loads(path.read_text())
@@ -313,6 +424,11 @@ def main():
     if args.gain_noise and "gain_noise" not in prof:
         add_gain_noise(prof)
         path.write_text(json.dumps(prof, separators=(",", ":")))
+    if args.lines and not prof["transport"].get("lines"):
+        found = split_lines(prof)
+        path.write_text(json.dumps(prof, separators=(",", ":")))
+        print("steady lines taken out of the transport's table: "
+              + ", ".join(f"{l['hz']:.2f} Hz {l['us']:.2f} us" for l in found), flush=True)
     hist_path = CAL / f"{args.track}_history.json"
     history = json.loads(hist_path.read_text()) if hist_path.exists() and not args.init else []
     emu_id = f"{args.track}emu"
@@ -338,6 +454,8 @@ def main():
             for key in ("eq", "gain_db", "songs", "transport", "jitter", "flicker"):
                 if key not in keep:
                     prof[key] = before[key]
+            if "gain" not in keep and "gain_noise" in before:  # "gain" names the gain noise
+                prof["gain_noise"] = before["gain_noise"]
             notes = [n for n in notes if any(n.startswith(k) for k in keep)] + [f"(only {args.only} corrected)"]
         prof["created"] = str(date.today())
         path.write_text(json.dumps(prof, separators=(",", ":")))

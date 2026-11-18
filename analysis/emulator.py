@@ -1,11 +1,13 @@
-"""The reference tape model (v0.5): applies a measured profile (calibrate.py) to audio, offline.
+"""The reference tape model (v0.6): applies a measured profile (calibrate.py) to audio, offline.
 
 Signal chain, in physical order:
   record gain -> saturation: a tiny cubic, then treble saturation (cubic on the pre-emphasised signal)
   -> static response per channel: measured magnitude AND phase (the phase holds each channel's
      delay and the large low-frequency rotation of the chain)
   -> timing, one warp per channel:
-       transport   slow common wobble with the mechanical line spectrum (capstan, motor, pinch roller)
+       transport   slow common wobble: a noise spectrum, and the mechanical lines (pinch roller,
+                   capstan, motor, their harmonics) as sines of constant level where the profile
+                   lists them (transport.lines; v0.6)
        differential  slow L-R wobble (pinch roller tilting the tape)
        jitter      fast timing (scrape flutter), 20 Hz .. 3 kHz rates, a common part and a part
                    independent per channel
@@ -175,6 +177,15 @@ class Emulator:
                 v = synth_from_psd(mn["rate_freqs"], mn["rate_psd"], sr, n, rng, log_interp=True)
                 return v / (np.std(v) + 1e-20)
             self.gainnoise = [unit_gn() for _ in range(2)]
+
+        # ---- steady lines of the wobble (capstan, its harmonics, the motor): sines of constant level,
+        # where a narrow peak in the noise spectrum would fade in and out. Also drawn last.
+        for key, attr, fades in (("transport", "transport_us", True), ("differential", "diff_us", False)):
+            sec = p[key]
+            for line in sec.get("lines", []):
+                ph0 = rng.uniform(0, 2 * np.pi)
+                fade = float(np.clip((sec["crossover_hz"] + 5 - line["hz"]) / 10, 0, 1)) if fades else 1.0
+                setattr(self, attr, getattr(self, attr) + np.sqrt(2 * fade) * line["us"] * np.sin(2 * np.pi * line["hz"] * tt + ph0))
 
     # ------------------------------------------------------------------
     def process(self, x: np.ndarray, ingredients=INGREDIENTS) -> np.ndarray:

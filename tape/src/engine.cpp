@@ -45,6 +45,7 @@ enum stream : std::uint64_t
     stream_tones,
     stream_gain_left, // added later: at the end, so the older streams keep their numbers
     stream_gain_right,
+    stream_lines,
 };
 
 double from_db(double db) noexcept { return std::pow(10.0, db / 20.0); }
@@ -352,6 +353,30 @@ private:
     running active_[8];
 };
 
+/// A steady line of the transport's wobble (profile::wobble::line): a sine in microseconds.
+struct flutter_line
+{
+    double step = 0;      ///< radians per sample
+    double angle = 0;     ///< running phase, kept within one turn
+    double amplitude = 0; ///< peak, microseconds
+};
+
+/// The sum of a set of lines at this sample; moves each on by one sample.
+inline double next_of(std::vector<flutter_line>& lines) noexcept
+{
+    double sum = 0;
+    for (flutter_line& l : lines)
+    {
+        sum += l.amplitude * std::sin(l.angle);
+        l.angle += l.step;
+        if (l.angle >= 2.0 * std::numbers::pi)
+        {
+            l.angle -= 2.0 * std::numbers::pi;
+        }
+    }
+    return sum;
+}
+
 /// One of the deck's steady tones.
 struct tone_source
 {
@@ -397,6 +422,7 @@ struct engine::impl
     std::vector<delay_line> bypass_dry;
 
     std::vector<slow_noise> slow;        // transport, differential
+    std::vector<flutter_line> transport_lines, differential_lines; // their steady lines, added to the noise
     std::vector<spectral_noise> fast;    // jitter common, left, right; flicker common, left, right; hiss left, right;
                                          // then, if the profile has it, gain noise left, right
     dropout_source dropouts;
@@ -472,6 +498,26 @@ engine::impl::impl(const profile& p, const settings& s)
     slow.emplace_back(transport_psd, sample_rate, size.control_step, slow_block, rng(s.seed, stream_transport));
     slow.emplace_back(differential_psd, sample_rate, size.control_step, slow_block, rng(s.seed, stream_differential));
 
+    // The steady lines, each starting at a random phase. The transport's fade out with its table.
+    rng line_random(s.seed, stream_lines);
+    double lines_variance[2] = {0.0, 0.0};
+    const auto add_lines = [&](const profile::wobble& w, std::vector<flutter_line>& into, double& variance, bool fades) {
+        for (const auto& l : w.lines)
+        {
+            const double phase = line_random.uniform() * 2.0 * std::numbers::pi; // drawn for every line, used or not
+            const double fade_out = fades ? std::clamp((w.crossover_hz + 5.0 - l.hz) / 10.0, 0.0, 1.0) : 1.0;
+            const double rms = l.us * std::sqrt(fade_out);
+            if (rms <= 0 || l.hz >= 0.45 * sample_rate)
+            {
+                continue;
+            }
+            into.push_back({2.0 * std::numbers::pi * l.hz / sample_rate, phase, std::numbers::sqrt2 * rms});
+            variance += rms * rms;
+        }
+    };
+    add_lines(p.transport, transport_lines, lines_variance[0], true);
+    add_lines(p.differential, differential_lines, lines_variance[1], false);
+
     const auto jitter_common = [&p](double f) { return psd_log(p.jitter.freqs, p.jitter.psd_common_us2_per_hz, f); };
     const auto jitter_own = [&p](double f) { return psd_log(p.jitter.freqs, p.jitter.psd_indep_us2_per_hz, f); };
     const auto flicker_rate = [&p](double f) { return psd_log(p.flicker.rate_freqs, p.flicker.rate_psd, f); };
@@ -497,7 +543,8 @@ engine::impl::impl(const profile& p, const settings& s)
 
     // ---- timing: room in the delay line for eight standard deviations of the wobble
     timing_scale = 1e-6 * sample_rate;
-    const double sigma_us = std::sqrt(slow[0].sigma() * slow[0].sigma() + 0.25 * slow[1].sigma() * slow[1].sigma() +
+    const double sigma_us = std::sqrt(slow[0].sigma() * slow[0].sigma() + lines_variance[0] +
+                                      0.25 * (slow[1].sigma() * slow[1].sigma() + lines_variance[1]) +
                                       fast[0].sigma() * fast[0].sigma() + fast[1].sigma() * fast[1].sigma());
     timing_limit = std::max(8.0, std::ceil(8.0 * sigma_us * timing_scale));
     const auto rest = static_cast<std::size_t>(timing_limit) + warp_half + 1;
@@ -632,8 +679,8 @@ void engine::impl::work(const float* in, float* out, std::size_t n, trace* recor
     // ---- timing
     for (std::size_t i = 0; i < n; ++i)
     {
-        const double transport = slow[0].next();
-        const double differential = slow[1].next();
+        const double transport = slow[0].next() + next_of(transport_lines);
+        const double differential = slow[1].next() + next_of(differential_lines);
         const double jitter_common = fast[0].next();
         const double jitter_own[2] = {fast[1].next(), fast[2].next()};
         const double gt = g_transport.next(), gd = g_differential.next(), gj = g_jitter.next();

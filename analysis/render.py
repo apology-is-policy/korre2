@@ -7,7 +7,8 @@
 
 The listening set: the source and an ingredient ladder (each step adds one fault, with the
 same random wobble/flicker/hiss throughout), the real tape capture, and a blind pair. All
-files are level-matched to the tape (100 Hz-8 kHz RMS) and polarity-matched to it.
+files are level-matched to the tape (100 Hz-8 kHz RMS) and polarity-matched to it. Where the capture
+itself clipped (tracks.py: clipped), the emulated files get the same ceiling at the capture's level.
 """
 from __future__ import annotations
 
@@ -119,6 +120,14 @@ def render_track(tid: str, profile: dict, seed: int, engine=None, folder_name: s
             files[name] = pol * src * np.array([10 ** (gains[c] / 20) for c in "LR"])
         else:
             files[name] = process(ingredients)
+            if t.clipped:
+                # The capture's converter ran into full scale in this song, so the tape file has a few
+                # flattened peaks. The emulation is at the capture's level: give it the same ceiling,
+                # or those peaks would be a difference that has nothing to do with the tape.
+                over = np.abs(files[name]) > 1.0
+                files[name] = np.clip(files[name], -1.0, 1.0)
+                print(f"  {name}: {int(over[:, 0].sum())} / {int(over[:, 1].sum())} samples (L / R) above the capture's "
+                      f"full scale, cut off there as in the capture")
         print(f"  rendered {name}")
 
     d0 = float(np.interp(0, z["centers"], z["delay"]))  # tape-excerpt sample aligned with source sample 0
