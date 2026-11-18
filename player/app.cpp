@@ -159,11 +159,11 @@ void app::after_frame()
     }
     if (player_.playing() || any)
     {
-        spectrum_.update(elapsed);
+        spectrum_.update();
     }
     else
     {
-        spectrum_.decay(elapsed);
+        spectrum_.clear();
     }
 
     if (player_.take_finished())

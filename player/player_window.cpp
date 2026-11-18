@@ -4,7 +4,10 @@
 #include <cmath>
 #include <cstdio>
 #include <format>
+#include <string>
+#include <vector>
 
+#include "braille.h"
 #include "frame.h"
 #include "imtui/imtui.h"
 #include "tape/engine.h"
@@ -271,8 +274,10 @@ void player_window::transport()
 
 void player_window::spectrum_box()
 {
+    constexpr int rows = 17;
     ImGui::TextUnformatted("╒════════════════════════════╡Frequency_Spectrum╞════════════════════════════╕");
-    for (int i = 0; i < 17; ++i)
+    const ImVec2 inside = ImGui::GetCursorPos(); // the first row inside the box
+    for (int i = 0; i < rows; ++i)
     {
         ImGui::TextUnformatted("│                                                                            │");
     }
@@ -302,14 +307,18 @@ void player_window::spectrum_box()
     ImGui::TextUnformatted("┤");
     ImGui::TextUnformatted("╘╩════╩══╩══╩═══╩═══╩═══╩═══╩══╩═══╩══════╩══╩═══╩══╩════╩══╩════╩══╩══╩══╩╩═╛");
 
-    ImGui::SetCursorPos(ImVec2(-1, 14));
-    ImGui::TextUnformatted("  ");
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_PlotLines, static_cast<ImVec4>(ImColor(251, 244, 224)));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, static_cast<ImVec4>(ImColor(0, 0, 0)));
-    // 14 rows: a column at zero then sits on the box's last row, not on the axis labels below it.
-    ImGui::PlotLines("", display_.values(), spectrum::columns, 0, "", 0.f, 1.0f, ImVec2(static_cast<float>(width_ - 6), 14));
-    ImGui::PopStyleColor(2);
+    // The curve, in Braille dots: two points per character cell across the box and four per row, the
+    // finest a terminal can draw. The box is 76 cells wide inside, the display has 152 points.
+    const ImVec2 after = ImGui::GetCursorPos();
+    const std::vector<std::string> lines = braille_curve(display_.values(), rows);
+    ImGui::PushStyleColor(ImGuiCol_Text, static_cast<ImVec4>(ImColor(251, 244, 224)));
+    for (int r = 0; r < rows; ++r)
+    {
+        ImGui::SetCursorPos(ImVec2(inside.x + 1, inside.y + static_cast<float>(r)));
+        ImGui::TextUnformatted(lines[static_cast<std::size_t>(r)].c_str());
+    }
+    ImGui::PopStyleColor();
+    ImGui::SetCursorPos(after);
 }
 
 } // namespace korre

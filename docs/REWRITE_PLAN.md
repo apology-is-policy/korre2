@@ -52,8 +52,10 @@ cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DKORRE_SANITIZE=thread && cma
    could keep the interface waiting.
 5. **C++23 pass over the interface. Done** (`player/`): `std::expected` for everything that can fail, no
    raw `new`, no globals, no exceptions escaping to the top. Command-line arguments.
-6. **Spectrum display. Done** (`player/spectrum.*`): Hann window, a fixed dB scale, bands evenly spaced in
-   pitch that match the printed axis, fed from the samples really played.
+6. **Spectrum display. Done** (`player/spectrum.*`, `player/braille.*`): a fixed dB scale, points evenly
+   spaced in pitch that match the printed axis, fed from the samples really played. Redone on 2026-11-18
+   after the owner's first look: a window length per point (5 ms in the treble to a sixth of a second
+   in the bass), no hold, and a curve in Braille dots (152 x 68) instead of the plot widget.
 7. **Profiles in the interface. Done for the tape:** profile selection, bypass and a switch per part of
    the model, in the DSP panel and the Tape menu. **Open:** the optional HRIR stage with selectable ear
    sets (kept separate from the tape model).

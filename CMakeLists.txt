@@ -59,7 +59,7 @@ add_subdirectory(playback) # decoder thread, engine and queue between a file and
 # The parts of the player that have no interface code in them, as a library so the tests can use them.
 add_library(pffft STATIC pffft/pffft.c)
 target_include_directories(pffft PUBLIC ${CMAKE_SOURCE_DIR})
-add_library(korre_player_parts STATIC player/spectrum.cpp player/play_queue.cpp)
+add_library(korre_player_parts STATIC player/spectrum.cpp player/braille.cpp player/play_queue.cpp)
 target_include_directories(korre_player_parts PUBLIC player)
 target_link_libraries(korre_player_parts PRIVATE korre_strict_warnings pffft)
 

@@ -47,16 +47,27 @@ masters (see `../playback/README.md`).
 | `queue_window.*`, `play_queue.*` | the queue window, and the order of play behind it (no interface code, tested) |
 | `file_window.*` | the file selector |
 | `tape_shelf.*` | the profiles on offer and which one is in the deck |
-| `spectrum.*` | the spectrum display's numbers: 100 columns from 20 Hz to 20 kHz on a dB scale (tested) |
+| `spectrum.*` | the spectrum display's numbers: 152 points from 20 Hz to 20 kHz on a dB scale, each analysed with the shortest window that resolves it (tested) |
+| `braille.*` | a curve drawn in Braille dots, 2 x 4 per character cell (tested) |
 | `frame.*` | the double-line window frame |
 
 ## What changed from the original, on purpose
 
-- **The spectrum** is on a fixed decibel scale (0 on the plot is -78 dBFS in a band, 1 is -6 dBFS)
-  with a Hann window and bands evenly spaced in pitch, matching the printed axis. The original
-  normalised every frame to its own strongest bin on a linear scale, without a window (the code had
-  one, switched off), so quiet and loud passages looked the same; and with its plot geometry a column
-  at zero lands on the axis labels.
+- **The spectrum** is on a fixed decibel scale (0 on the plot is -72 dB in a point's band, 1 is -12 dB,
+  a full-scale sine being 0 dB), on points evenly spaced in pitch, matching the printed axis. The
+  original normalised every frame to its own strongest bin on a linear scale, without a window (the
+  code had one, switched off), so quiet and loud passages looked the same.
+  - *Each point has its own window length*: about 5 ms at the top of the treble, where a point is
+    hundreds of Hz wide, up to a sixth of a second in the bass, where it is a few Hz wide. So the
+    treble follows the music at once and each point there moves on its own, while the bass moves
+    slowly and several points together (below about 190 Hz a point is narrower than any window of
+    that length can resolve). There is no hold and no smoothing over time.
+  - *It is drawn in Braille dots*, two points per character cell across and four per row: 152 x 68
+    in the 76 x 17 box, where the plot widget drew one thick cell per point.
+  - The first version of this rewrite used one window of a sixth of a second for every point, let
+    the points fall at 36 dB per second and spanned 72 dB with the band's whole power: the treble
+    was as slow as the bass, everything stayed up, and the picture was a broad arc. The owner
+    spotted it on first use (2026-11-18).
 - **Shuffle** reorders the tracks to come and leaves the one that is playing alone; switching it off
   puts the remaining tracks back in the order they were added. The original reloaded the first track,
   which stopped the music, and restored a snapshot that forgot what had been played or added since.
