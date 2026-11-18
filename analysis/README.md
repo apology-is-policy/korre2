@@ -52,6 +52,7 @@ in `tracks.py`.
 | `coupling.py <tracks...>` | is the modulation driven by the music? coherence of each octave's AM and timing with the bass waveform, the level and the band's own level; attack/decay asymmetry |
 | `peaks.py <tracks...>` | gain on the linear prediction by amplitude class: does the deck round off peaks? |
 | `bassdist.py <tracks...>` | distortion driven by the bass alone, in the low band |
+| `residbylevel.py <track> [<track>emu]` | what is left after the best linear fit, per octave, in blocks sorted by loudness (quietest quarter to loudest tenth); with tape and emulation, where and at what level the emulation is cleaner or rougher |
 | `levelsplit.py <tracks...>` | is the fast amplitude modulation of a band multiplicative or added? AM at 96-384 Hz rates by the band's own level, per octave and channel (flat: it scales with the signal; halving per 6 dB: added noise) |
 | `crossband.py <tracks...>` | is a channel's amplitude modulation one gain for all frequencies or separate per band? coherence of the demodulated AM (and timing) between octave bands, per modulation rate |
 | `satfit.py <track> [--apply P] [--check T2]` | fits the treble saturation stage (cubic on the pre-emphasised signal) from the treble gain by level, tape minus emulation; `--check` predicts another song |

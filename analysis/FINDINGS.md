@@ -1010,3 +1010,48 @@ the engine's output is within 0.2 dB of the tape from 30 Hz to 14 kHz (the I Mis
 clipped in three moments of this song (23 samples, left); `render.py` now gives the emulated files the
 same ceiling at the capture's level for tracks marked `clipped` (28 samples cut). An earlier set with
 fading lines is kept as `out/listening/MB2_INVALID_fading_flutter_lines/`.
+
+## 2026-11-18: seventh blind test (owner): Shallow on the metal tape, told apart with effort
+`out/listening/MB2/blind` (model v0.6, profile `wmd6c_metalxr_v2_MB2`, DT 770): **the owner identified the
+tape, correctly**, and "had to work for it, hunting for slightest treble and isolation differences on the
+piano in the background during the loud vocal phase"; "very very very good". The song they know best.
+Both things they named are among the differences measured before they listened: the emulation 0.4-0.5 dB
+cleaner than the tape at 1-2 kHz in the loud blocks, and its top octave 0.5 dB lower.
+
+### The shortfall is in the loudest passages (`residbylevel.py`, new)
+Residual relative to the signal per octave, in blocks sorted by the loudness of the whole signal;
+emulation (the set's render) minus tape, dB (negative: the emulation is cleaner):
+
+| | 250 | 500 | 1k | 2k | 4k | 8k | 13k Hz |
+|---|---|---|---|---|---|---|---|
+| quietest quarter | +0.1 | +0.1 | −0.3 | −0.3 | 0.0 | −0.6 | −1.0 |
+| second quarter | +0.1 | −0.2 | 0.0 | −0.3 | +0.6 | +1.1 | +0.5 |
+| third quarter | +0.8 | 0.0 | −0.8 | −0.8 | −0.6 | −0.5 | −0.3 |
+| loudest quarter | 0.0 | −0.5 | −0.4 | −0.3 | −0.2 | −0.1 | 0.0 |
+| loudest tenth | −0.6 | −0.8 | −0.7 | −0.6 | −0.3 | −0.2 | +0.1 |
+
+In the loudest tenth of the song the emulation is 0.6-0.8 dB cleaner from 250 Hz to 2 kHz, which is where
+a piano behind a loud voice sits; over the whole song the two are level at 250-500 Hz. On the tape the
+residual at 250 Hz rises by 2 dB from the middle classes to the loudest tenth (−31.5 to −29.4 dB); in the
+emulation by about 1 dB. So what remains is tied to level: the family the model does not have (the
+8 kHz AM growing with level and the treble's small loss in loud passages, noted on the chrome tape, belong
+to it). This capture came through the Walkman's headphone amplifier into 32 ohms, recorded hot enough to
+clip the converter three times in this song, so the amplifier at high level is a candidate next to the tape.
+A LINE OUT take of the same song would separate the two.
+
+### Two things on this capture that grow with level (`dynamics.py MB2`, `MB2emu`)
+- **Distortion.** Second- and third-order terms fitted on even seconds and tested on odd ones, relative to
+  the signal, at source levels of −12.5 / −9.0 / −7.4 / −5.0 dB: tape left −44.2 / −39.4 / −37.5 / −37.7 dB,
+  right −47.8 / −43.5 / −41.7 / −42.0; emulation left −51.2 / −46.2 / −44.3 / −44.2, right −52.7 / −47.6 /
+  −45.7 / −45.9. The capture has about 7 dB more distortion than the emulation on the left and 4 dB on the
+  right. The model's cubic (−43 dB at a reference level) was fitted on the chrome tape's line-out capture
+  and copied into the metal profiles; it was never fitted on this chain (metal tape, headphone amplifier
+  into 32 ohms). Spread like the signal, −37.5 dB against a residual of −27 to −30 dB at 250-500 Hz would be
+  worth roughly 0.3-0.5 dB there: the size of the shortfall. An estimate until the distortion is fitted.
+- **Slow amplitude modulation in the treble.** At 4 kHz, rates below 100 Hz, from the quietest to the
+  loudest class: tape left 4.6 → 6.2%, right 4.6 → 6.0%; emulation 5.0 → 4.8% and 4.8 → 4.6%. At 8 kHz in
+  the loudest class: tape 19.2 / 19.4%, emulation 16.0 / 15.5%. The tape's grows with level and the
+  model's does not (the chrome tape showed the same at 8 kHz).
+
+Next: fit the distortion on this chain (which order, and per channel), then the level-dependent
+modulation; check each with `residbylevel.py` on the loudest tenth.
