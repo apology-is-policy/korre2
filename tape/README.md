@@ -34,6 +34,7 @@ the record of how each part was found).
 | static response | magnitude and phase per channel, including the bass roll-off's large phase rotation and the delay between the channels | one filter of a third of a second per channel, applied as a partitioned FFT convolution |
 | timing | slow wobble with the transport's mechanical lines, the slow left-right difference, fast jitter (a common part and a part per channel) | one moving delay line per channel, read with a 48-tap windowed sinc |
 | amplitude flicker | deeper towards the treble; a common part and a part per channel | two short symmetric filters per channel, each times a slow random gain |
+| gain noise | a fast wobble (to a few hundred Hz) of each channel's level as a whole, deeper on the left, whose track runs along the tape's edge; only in profiles that have it | one more such filter per channel times its own random gain |
 | dropouts | short dips, drawn from the measured ones | random events |
 | background | the recorded tape's noise per channel and the deck's faint steady tones | noise with the measured spectrum; sine generators |
 | polarity | the WM-D6C chain inverts | sign |

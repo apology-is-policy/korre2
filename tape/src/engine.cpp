@@ -43,6 +43,8 @@ enum stream : std::uint64_t
     stream_hiss_right,
     stream_dropouts,
     stream_tones,
+    stream_gain_left, // added later: at the end, so the older streams keep their numbers
+    stream_gain_right,
 };
 
 double from_db(double db) noexcept { return std::pow(10.0, db / 20.0); }
@@ -227,18 +229,19 @@ std::vector<double> make_warp_kernel()
     return kernel;
 }
 
-/// The two flicker filters of one channel, fed from one history of the signal.
+/// The amplitude filters of one channel, fed from one history of the signal: the two flicker filters
+/// and, if the profile has it, the gain noise's.
 class flicker_filters
 {
 public:
-    flicker_filters(const std::vector<double>& common, const std::vector<double>& own)
-        : common_(common), own_(own), taps_(common.size()), history_(2 * common.size(), 0.0)
+    flicker_filters(const std::vector<double>& common, const std::vector<double>& own, const std::vector<double>* noise)
+        : common_(common), own_(own), noise_(noise), taps_(common.size()), history_(2 * common.size(), 0.0)
     {
     }
 
     /// Takes the next sample in; returns the signal delayed by half the filter length, and through
-    /// each filter.
-    void step(double in, double& delayed, double& via_common, double& via_own) noexcept
+    /// each filter (via_noise is 0 without gain noise).
+    void step(double in, double& delayed, double& via_common, double& via_own, double& via_noise) noexcept
     {
         // Each sample is stored twice, taps_ apart, so the last taps_ samples are always contiguous.
         history_[pos_] = in;
@@ -248,6 +251,7 @@ public:
         delayed = recent[taps_ / 2];
         via_common = dot(recent, common_.data(), taps_); // the filters are symmetric: direction does not matter
         via_own = dot(recent, own_.data(), taps_);
+        via_noise = noise_ ? dot(recent, noise_->data(), taps_) : 0.0;
     }
 
     void reset() noexcept { std::fill(history_.begin(), history_.end(), 0.0); }
@@ -255,6 +259,7 @@ public:
 private:
     const std::vector<double>& common_;
     const std::vector<double>& own_;
+    const std::vector<double>* noise_;
     std::size_t taps_;
     std::vector<double> history_;
     std::size_t pos_ = 0;
@@ -380,6 +385,8 @@ struct engine::impl
 
     std::vector<double> response_taps[2];
     std::vector<double> flicker_common_taps, flicker_own_taps;
+    std::vector<double> gain_noise_taps[2]; ///< empty without gain noise
+    bool gain_noise_on = false;
     std::vector<double> warp_kernel;
 
     std::vector<one_pole> emphasis, deemphasis; // per channel
@@ -390,7 +397,8 @@ struct engine::impl
     std::vector<delay_line> bypass_dry;
 
     std::vector<slow_noise> slow;        // transport, differential
-    std::vector<spectral_noise> fast;    // jitter common, left, right; flicker common, left, right; hiss left, right
+    std::vector<spectral_noise> fast;    // jitter common, left, right; flicker common, left, right; hiss left, right;
+                                         // then, if the profile has it, gain noise left, right
     dropout_source dropouts;
     std::vector<tone_source> tones;
 
@@ -469,7 +477,7 @@ engine::impl::impl(const profile& p, const settings& s)
     const auto flicker_rate = [&p](double f) { return psd_log(p.flicker.rate_freqs, p.flicker.rate_psd, f); };
     const auto hiss_left = [&p](double f) { return psd_linear(p.hiss.freqs, p.hiss.psd[0], f); };
     const auto hiss_right = [&p](double f) { return psd_linear(p.hiss.freqs, p.hiss.psd[1], f); };
-    fast.reserve(8);
+    fast.reserve(10);
     fast.emplace_back(jitter_common, sample_rate, fast_block, rng(s.seed, stream_jitter_common), false, stagger(0));
     fast.emplace_back(jitter_own, sample_rate, fast_block, rng(s.seed, stream_jitter_left), false, stagger(1));
     fast.emplace_back(jitter_own, sample_rate, fast_block, rng(s.seed, stream_jitter_right), false, stagger(2));
@@ -478,6 +486,14 @@ engine::impl::impl(const profile& p, const settings& s)
     fast.emplace_back(flicker_rate, sample_rate, fast_block, rng(s.seed, stream_flicker_right), true, stagger(5));
     fast.emplace_back(hiss_left, sample_rate, fast_block, rng(s.seed, stream_hiss_left), false, stagger(6));
     fast.emplace_back(hiss_right, sample_rate, fast_block, rng(s.seed, stream_hiss_right), false, stagger(7));
+    if (p.gain_noise)
+    {
+        gain_noise_on = true;
+        const auto& mn = *p.gain_noise;
+        const auto rate = [&mn](double f) { return psd_log(mn.rate_freqs, mn.rate_psd, f); };
+        fast.emplace_back(rate, sample_rate, fast_block, rng(s.seed, stream_gain_left), true, stagger(1) / 2);
+        fast.emplace_back(rate, sample_rate, fast_block, rng(s.seed, stream_gain_right), true, stagger(3) / 2);
+    }
 
     // ---- timing: room in the delay line for eight standard deviations of the wobble
     timing_scale = 1e-6 * sample_rate;
@@ -494,9 +510,14 @@ engine::impl::impl(const profile& p, const settings& s)
     // ---- flicker
     flicker_common_taps = flicker_filter(p.flicker.depth_freqs, p.flicker.depth_common, sample_rate);
     flicker_own_taps = flicker_filter(p.flicker.depth_freqs, p.flicker.depth_indep, sample_rate);
+    for (int c = 0; c < 2 && gain_noise_on; ++c)
+    {
+        const auto& mn = *p.gain_noise;
+        gain_noise_taps[c] = flicker_filter(mn.depth_freqs, mn.depth[static_cast<std::size_t>(c)], sample_rate, true);
+    }
     flicker.reserve(2);
-    flicker.emplace_back(flicker_common_taps, flicker_own_taps);
-    flicker.emplace_back(flicker_common_taps, flicker_own_taps);
+    flicker.emplace_back(flicker_common_taps, flicker_own_taps, gain_noise_on ? &gain_noise_taps[0] : nullptr);
+    flicker.emplace_back(flicker_common_taps, flicker_own_taps, gain_noise_on ? &gain_noise_taps[1] : nullptr);
     lag.flicker = size.flicker_half;
 
     lag.total = lag.response + lag.timing + lag.flicker;
@@ -639,6 +660,7 @@ void engine::impl::work(const float* in, float* out, std::size_t n, trace* recor
         const double flicker_common = fast[3].next();
         const double flicker_own[2] = {fast[4].next(), fast[5].next()};
         const double hiss[2] = {fast[6].next(), fast[7].next()};
+        const double noise_gain[2] = {gain_noise_on ? fast[8].next() : 0.0, gain_noise_on ? fast[9].next() : 0.0};
         double gain[2];
         dropouts.step(gain[0], gain[1]);
 
@@ -657,9 +679,9 @@ void engine::impl::work(const float* in, float* out, std::size_t n, trace* recor
         const double gf = g_flicker.next(), gdr = g_dropouts.next(), gh = g_hiss.next(), gw = g_wet.next();
         for (int c = 0; c < 2; ++c)
         {
-            double delayed, via_common, via_own;
-            flicker[c].step(x[c][i], delayed, via_common, via_own);
-            double y = delayed - gf * (flicker_common * via_common + flicker_own[c] * via_own);
+            double delayed, via_common, via_own, via_noise;
+            flicker[c].step(x[c][i], delayed, via_common, via_own, via_noise);
+            double y = delayed - gf * (flicker_common * via_common + flicker_own[c] * via_own + noise_gain[c] * via_noise);
             y *= 1.0 + gdr * (gain[c] - 1.0);
             y += gh * background[c];
             y *= output_gain;
@@ -673,6 +695,7 @@ void engine::impl::work(const float* in, float* out, std::size_t n, trace* recor
             for (int c = 0; c < 2; ++c)
             {
                 record->flicker_own[c].push_back(flicker_own[c]);
+                record->gain_noise[c].push_back(noise_gain[c]);
                 record->dropout_gain[c].push_back(gain[c]);
                 record->background[c].push_back(background[c]);
             }
@@ -698,6 +721,7 @@ void engine::process(std::span<const float> in, std::span<float> out, trace& rec
         record.response_pre = impl_->size.response_pre;
         record.flicker_filter_common = impl_->flicker_common_taps;
         record.flicker_filter_own = impl_->flicker_own_taps;
+        record.gain_noise_filter = {impl_->gain_noise_taps[0], impl_->gain_noise_taps[1]};
     }
     impl_->run(in.data(), out.data(), std::min(in.size(), out.size()) / 2, &record);
 }

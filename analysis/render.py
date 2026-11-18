@@ -88,8 +88,28 @@ def render_emulation(tid: str, profile: dict, seed: int, path: Path):
     register_virtual(f"{t.id}emu", t.id, path, len(src) / sr, f"{t.title} (emulated)")
 
 
-def render_track(tid: str, profile: dict, seed: int):
+ENGINE = Path(__file__).resolve().parent.parent / "build" / "bin" / "korre-render"
+
+
+def engine_process(engine, src_path, profile: dict, gains: dict, pol: int, seed: int, ingredients) -> np.ndarray:
+    """One render through the C++ engine (korre-render): the same model as Emulator.process
+    (verify_engine.py), with the engine's streaming filters."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="korre_render_") as tmp:
+        prof_path, out_path = Path(tmp) / "profile.json", Path(tmp) / "out.wav"
+        prof_path.write_text(json.dumps(profile))
+        subprocess.run([str(engine), str(src_path), str(out_path), "--profile", str(prof_path), "--seed", str(seed),
+                        "--record-gain", f"{gains['L']},{gains['R']}", "--polarity", str(pol), "--bits", "float",
+                        "--ingredients", ",".join(sorted(ingredients)) or "none"], check=True, stdout=subprocess.DEVNULL)
+        return decode(out_path).astype(np.float64)
+
+
+def render_track(tid: str, profile: dict, seed: int, engine=None, folder_name: str | None = None):
     t, z, sr, src, gains, pol, emu = setup(tid, profile, seed)
+    if engine:
+        process = lambda ingredients: engine_process(engine, t.source_path, profile, gains, pol, seed, ingredients)
+    else:
+        process = lambda ingredients: emu.process(src, ingredients)
     n = len(src)
     print(f"{t.id} {t.title}: {n / sr:.1f} s @ {sr} Hz, record gain L {gains['L']:+.2f} R {gains['R']:+.2f} dB, "
           f"polarity {pol:+d} (matched to the tape)")
@@ -98,7 +118,7 @@ def render_track(tid: str, profile: dict, seed: int):
         if ingredients is None:
             files[name] = pol * src * np.array([10 ** (gains[c] / 20) for c in "LR"])
         else:
-            files[name] = emu.process(src, ingredients)
+            files[name] = process(ingredients)
         print(f"  rendered {name}")
 
     d0 = float(np.interp(0, z["centers"], z["delay"]))  # tape-excerpt sample aligned with source sample 0
@@ -124,7 +144,7 @@ def render_track(tid: str, profile: dict, seed: int):
         files[k] = files[k] * (ref / band_rms(files[k], sr))
     peak = max(np.abs(v).max() for v in files.values())
     head = min(1.0, 0.95 / peak)  # common headroom so nothing clips; relative levels kept
-    folder = OUT / "listening" / t.id
+    folder = OUT / "listening" / (folder_name or t.id)
     for k, v in files.items():
         write_flac(v * head, sr, folder / f"{k}.flac")
 
@@ -136,7 +156,7 @@ def render_track(tid: str, profile: dict, seed: int):
     (folder / "blind" / "KEY_dont_peek.txt").write_text(f"X = {pair[0]}\nY = {pair[1]}\n")
 
     # make the full render analysable as a capture (at tape level, before level matching)
-    raw = OUT / "listening" / t.id / "_6_full_tape_level.flac"
+    raw = folder / "_6_full_tape_level.flac"
     write_flac(full_tape_level, sr, raw)
     register_virtual(f"{t.id}emu", t.id, raw, len(src) / sr, f"{t.title} (emulated)")
     print(f"wrote {folder}/ (common headroom {20 * np.log10(head):+.1f} dB); registered {t.id}emu for analysis")
@@ -149,10 +169,18 @@ def main():
     ap.add_argument("--source")
     ap.add_argument("--out")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--engine", nargs="?", const=str(ENGINE),
+                    help="render the listening set with the C++ engine (korre-render) instead of emulator.py")
+    ap.add_argument("--folder", help="name of the listening set's folder under out/listening/ (default: the track id)")
+    ap.add_argument("--record-gain", nargs=2, type=float, metavar=("L", "R"),
+                    help="record gain in dB for a song the profile was not fitted on (default: the profile's)")
     args = ap.parse_args()
     profile = json.loads(Path(args.profile).read_text())
     if args.track:
-        render_track(args.track, profile, args.seed)
+        if args.record_gain:  # a song of its own level: listed in the profile's songs, where setup() looks
+            profile["songs"] = [s_ for s_ in profile["songs"] if s_["id"] != track(args.track).id] + [
+                dict(id=track(args.track).id, gain_db=dict(L=args.record_gain[0], R=args.record_gain[1]))]
+        render_track(args.track, profile, args.seed, engine=args.engine, folder_name=args.folder)
     else:
         if not (args.source and args.out):
             ap.error("give a track id, or --source and --out")

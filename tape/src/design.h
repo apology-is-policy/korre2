@@ -60,8 +60,14 @@ sizes sizes_for(double sample_rate) noexcept;
 /// sizes::response_pre. The delay common to both channels is taken out, their difference stays in.
 std::vector<double> response_filter(const profile& p, int channel, double sample_rate);
 
-/// A symmetric (zero-phase once its delay is allowed for) filter whose gain is the flicker depth.
-std::vector<double> flicker_filter(const std::vector<double>& freqs, const std::vector<double>& rms, double sample_rate);
+/// Depth (RMS fraction) at f, log-log interpolated and held at both ends of the table: the modulation
+/// noise is about as deep in the bass as in the mids.
+double held_depth(const std::vector<double>& freqs, const std::vector<double>& rms, double f) noexcept;
+
+/// A symmetric (zero-phase once its delay is allowed for) filter whose gain is a depth table:
+/// flicker_depth() of it, or held_depth() with `held`.
+std::vector<double> flicker_filter(const std::vector<double>& freqs, const std::vector<double>& rms, double sample_rate,
+                                   bool held = false);
 
 /// First-order high shelf, unity at DC and `gain_db` far above the corner 1 / (2 pi tau):
 /// y[n] = b0 x[n] + b1 x[n-1] - a1 y[n-1]. Bilinear transform without prewarping (scipy.signal.bilinear).

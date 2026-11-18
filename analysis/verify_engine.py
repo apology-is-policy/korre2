@@ -35,7 +35,8 @@ from tracks import register_virtual, track
 
 RENDER = Path(__file__).resolve().parent.parent / "build" / "bin" / "korre-render"
 CONTROLS = ("transport", "differential", "jitter_common", "jitter_left", "jitter_right", "flicker_common",
-            "flicker_left", "flicker_right", "dropout_left", "dropout_right", "background_left", "background_right")
+            "flicker_left", "flicker_right", "gainnoise_left", "gainnoise_right", "dropout_left", "dropout_right",
+            "background_left", "background_right")
 EDGE_S = 0.5  # the ends of a clip are left out of comparisons: the engine starts from silence
 
 
@@ -60,7 +61,8 @@ def render(render_bin, src_path, out_path, profile_path, gains, polarity, seed, 
 def load_trace(folder: Path) -> dict:
     t = {k: np.fromfile(folder / f"{k}.f64") for k in CONTROLS}
     t["info"] = json.loads((folder / "info.json").read_text())
-    for k in ("response_left", "response_right", "flicker_filter_common", "flicker_filter_own"):
+    for k in ("response_left", "response_right", "flicker_filter_common", "flicker_filter_own", "gainnoise_filter_left",
+              "gainnoise_filter_right"):
         t[k] = np.fromfile(folder / f"{k}.f64")
     return t
 
@@ -138,12 +140,16 @@ def main():
 
     # ------------------------------------------------------------------ 1. filters
     print("\n1. Filter designs, engine against streamref.py (largest difference relative to the largest tap)")
-    for name, mine in (("response L", streamref.response_filter(profile, "L", sr)),
-                       ("response R", streamref.response_filter(profile, "R", sr)),
-                       ("flicker common", streamref.flicker_filter(profile["flicker"]["depth_freqs"], profile["flicker"]["depth_common"], sr)),
-                       ("flicker own", streamref.flicker_filter(profile["flicker"]["depth_freqs"], profile["flicker"]["depth_indep"], sr))):
+    designs = [("response L", streamref.response_filter(profile, "L", sr)),
+               ("response R", streamref.response_filter(profile, "R", sr)),
+               ("flicker common", streamref.flicker_filter(profile["flicker"]["depth_freqs"], profile["flicker"]["depth_common"], sr)),
+               ("flicker own", streamref.flicker_filter(profile["flicker"]["depth_freqs"], profile["flicker"]["depth_indep"], sr))]
+    mn = profile.get("gain_noise")
+    if mn:
+        designs += [(f"gain noise {c}", streamref.flicker_filter(mn["depth_freqs"], mn[f"depth_{c}"], sr, held=True)) for c in "LR"]
+    for name, mine in designs:
         key = {"response L": "response_left", "response R": "response_right", "flicker common": "flicker_filter_common",
-               "flicker own": "flicker_filter_own"}[name]
+               "flicker own": "flicker_filter_own", "gain noise L": "gainnoise_filter_left", "gain noise R": "gainnoise_filter_right"}[name]
         theirs = tr[key]
         same_len = len(theirs) == len(mine)
         diff = np.abs(theirs - mine).max() / np.abs(mine).max() if same_len else np.inf
@@ -225,6 +231,17 @@ def main():
     for k in ("flicker_common", "flicker_left", "flicker_right"):
         row(f"{k.split('_')[1]}: engine", band_levels(tr[k], sr, rate_bands, 1 << 16))
     print("    overall RMS (should be 1): " + ", ".join(f"{k.split('_')[1]} {rms(tr[k]):.3f}" for k in ("flicker_common", "flicker_left", "flicker_right")))
+    if mn:
+        from calibrate import rate_share
+        mf, mP = np.array(mn["rate_freqs"]), np.array(mn["rate_psd"])
+        mod_bands = [(4, 16), (16, 64), (64, 256), (256, 1024), (1024, 4000)]
+        print("  gain noise, share of unit RMS per rate band [Hz]  " + " ".join(f"{lo:g}-{hi:g}".rjust(8) for lo, hi in mod_bands))
+        row("table", [np.sqrt(rate_share(mf, mP, lo, hi)) for lo, hi in mod_bands])
+        for k in ("gainnoise_left", "gainnoise_right"):
+            row(f"{k.split('_')[1]}: engine", band_levels(tr[k], sr, mod_bands, 1 << 16))
+        print(f"    overall RMS (should be 1): left {rms(tr['gainnoise_left']):.3f}, right {rms(tr['gainnoise_right']):.3f}; "
+              f"correlation left / right {np.corrcoef(tr['gainnoise_left'], tr['gainnoise_right'])[0, 1]:+.4f}, "
+              f"left / flicker left {np.corrcoef(tr['gainnoise_left'], tr['flicker_left'])[0, 1]:+.4f}")
 
     hz = profile["hiss"]
     hf = np.array(hz["freqs"])

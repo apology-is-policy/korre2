@@ -193,6 +193,25 @@ profile build(const json& j)
         non_negative(p.flicker.depth_common, "flicker depth");
         non_negative(p.flicker.depth_indep, "flicker depth");
     }
+    if (j.contains("gain_noise") && !j.at("gain_noise").is_null())
+    {
+        const json& mn = j.at("gain_noise");
+        profile::gain_noise_set n;
+        n.rate_freqs = table(mn, "rate_freqs", "gain_noise.");
+        n.rate_psd = table(mn, "rate_psd", "gain_noise.");
+        n.depth_freqs = table(mn, "depth_freqs", "gain_noise.");
+        n.depth = {table(mn, "depth_L", "gain_noise."), table(mn, "depth_R", "gain_noise.")};
+        ascending(n.rate_freqs, 2, true, "gain noise rate");
+        same_length(n.rate_freqs, n.rate_psd, "gain noise rate");
+        non_negative(n.rate_psd, "gain noise rate");
+        ascending(n.depth_freqs, 2, true, "gain noise depth");
+        for (int c = 0; c < 2; ++c)
+        {
+            same_length(n.depth_freqs, n.depth[c], "gain noise depth");
+            non_negative(n.depth[c], "gain noise depth");
+        }
+        p.gain_noise = std::move(n);
+    }
     {
         const json& dr = member(j, "dropouts", "");
         p.dropouts.rate_per_min = number(dr, "rate_per_min", "dropouts.");

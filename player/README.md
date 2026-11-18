@@ -28,7 +28,7 @@ They are in the DSP panel of the player window:
 │ █ EQ     █ SAT   │   the parts of the model, each with a lamp (green: on)
 │ █ WOW    █ L-R   │     EQ   static response and phase     SAT  saturation
 │ █ JIT    █ FLK   │     WOW  slow transport wobble         L-R  slow left-right timing difference
-│ █ DRP    █ HISS  │     JIT  fast timing jitter            FLK  amplitude flicker
+│ █ DRP    █ HISS  │     JIT  fast timing jitter            FLK  amplitude flicker and gain noise
 │ pk -17.9 dB      │     DRP  dropouts                      HISS noise and the deck's steady tones
 ╘═══════╡ Bypass╞══╛   the level going out, and CLIP when a sample hit full scale
 ```

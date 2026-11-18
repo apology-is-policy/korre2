@@ -1,4 +1,4 @@
-"""Prototype tape emulator v0.2: applies a measured profile (calibrate.py) to audio, offline.
+"""The reference tape model (v0.5): applies a measured profile (calibrate.py) to audio, offline.
 
 Signal chain, in physical order:
   record gain -> saturation: a tiny cubic, then treble saturation (cubic on the pre-emphasised signal)
@@ -10,6 +10,8 @@ Signal chain, in physical order:
        jitter      fast timing (scrape flutter), 20 Hz .. 3 kHz rates, a common part and a part
                    independent per channel
   -> amplitude flicker (head contact): depth per frequency, common + independent parts
+     and gain noise: a fast wobble of each channel's level as a whole (up to a few hundred Hz), with
+     its own depth per channel (the left track runs along the tape's edge and has more of it)
   -> dropouts -> background: noise per channel + the deck's faint steady tones -> polarity
 
 v0.1 modelled most of the fast modulation as amplitude flicker; with a better alignment it turned
@@ -96,6 +98,13 @@ def depth_curve(table, f):
     return out
 
 
+def held_depth(freqs, rms, f):
+    """Depth (fraction RMS) at frequencies f from a per-band table, log-log interpolated and held at
+    both ends: the gain noise is about as deep in the bass as in the mids (levelsplit.py)."""
+    d = np.maximum(np.asarray(rms, float), 1e-6)
+    return np.exp(np.interp(np.log(np.maximum(f, 1.0)), np.log(np.asarray(freqs, float)), np.log(d)))
+
+
 class Emulator:
     def __init__(self, profile: dict, sr: int, n: int, seed: int = 1, record_gain_db: dict | None = None,
                  polarity: int = 1):
@@ -157,6 +166,16 @@ class Emulator:
             for c, (key, dph) in enumerate((("L_dbfs", np.radians(tone["phase_deg"])), ("R_dbfs", 0.0))):
                 self.hiss[:, c] += np.sqrt(2) * 10 ** (tone[key] / 20) * np.cos(2 * np.pi * tone["hz"] * tt + ph0 + dph)
 
+        # ---- gain noise: unit-RMS processes, one per channel (drawn last, so that a seed's other
+        # signals are the same with and without it)
+        self.gainnoise = None
+        mn = p.get("gain_noise")
+        if mn:
+            def unit_gn():
+                v = synth_from_psd(mn["rate_freqs"], mn["rate_psd"], sr, n, rng, log_interp=True)
+                return v / (np.std(v) + 1e-20)
+            self.gainnoise = [unit_gn() for _ in range(2)]
+
     # ------------------------------------------------------------------
     def process(self, x: np.ndarray, ingredients=INGREDIENTS) -> np.ndarray:
         p, sr, n = self.p, self.sr, self.n
@@ -202,11 +221,16 @@ class Emulator:
             fl = p["flicker"]
             dc = depth_curve(dict(freqs=fl["depth_freqs"], rms=fl["depth_common"]), f_full)
             di = depth_curve(dict(freqs=fl["depth_freqs"], rms=fl["depth_indep"]), f_full)
+            mn = p.get("gain_noise")
             for c in range(2):
                 Y = np.fft.rfft(y[:, c], nfft)
                 vc = np.fft.irfft(Y * dc, nfft)[:n]
                 vi = np.fft.irfft(Y * di, nfft)[:n]
-                y[:, c] = y[:, c] - self.flicker_common * vc - self.flicker_indep[c] * vi
+                out = y[:, c] - self.flicker_common * vc - self.flicker_indep[c] * vi
+                if self.gainnoise is not None:
+                    dm = held_depth(mn["depth_freqs"], mn["depth_L" if c == 0 else "depth_R"], f_full)
+                    out = out - self.gainnoise[c] * np.fft.irfft(Y * dm, nfft)[:n]
+                y[:, c] = out
 
         if "dropouts" in ingredients:
             y = y * self.dropout_env

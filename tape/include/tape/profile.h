@@ -76,6 +76,18 @@ struct profile
         std::vector<double> depth_indep;  ///< RMS fraction, each channel's own
     } flicker;
 
+    /// Gain noise: a fast wobble (up to a few hundred Hz) of each channel's level as a whole, each
+    /// channel with its own depth (the left track runs along the tape's edge and has more). Absent in
+    /// older profiles.
+    struct gain_noise_set
+    {
+        std::vector<double> rate_freqs;
+        std::vector<double> rate_psd; ///< shape only: the engine scales it to unit variance
+        std::vector<double> depth_freqs;
+        std::array<std::vector<double>, 2> depth; ///< RMS fraction per channel; held outside the table
+    };
+    std::optional<gain_noise_set> gain_noise;
+
     struct dropout_event
     {
         double depth_db = 0;

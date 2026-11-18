@@ -16,7 +16,7 @@ import numpy as np
 from scipy import signal
 
 from align import warp
-from emulator import INGREDIENTS, depth_curve, hf_stage, measured_response
+from emulator import INGREDIENTS, depth_curve, held_depth, hf_stage, measured_response
 
 
 def lround(x: float) -> int:
@@ -48,11 +48,13 @@ def response_filter(profile: dict, channel: str, sr: float) -> np.ndarray:
     return h[(i - pre) % n] * w
 
 
-def flicker_filter(freqs, rms, sr: float) -> np.ndarray:
-    """A symmetric filter of 2 * flicker_half + 1 taps whose gain is the flicker depth."""
+def flicker_filter(freqs, rms, sr: float, held: bool = False) -> np.ndarray:
+    """A symmetric filter of 2 * flicker_half + 1 taps whose gain is a depth table: the flicker's
+    (falling below the table), or with `held` the gain noise's (held at both ends)."""
     half = sizes_for(sr)["flicker_half"]
     n = 1 << int(np.ceil(np.log2(32 * half)))
-    d = depth_curve(dict(freqs=freqs, rms=rms), np.fft.rfftfreq(n, 1 / sr))
+    fgrid = np.fft.rfftfreq(n, 1 / sr)
+    d = held_depth(freqs, rms, fgrid) if held else depth_curve(dict(freqs=freqs, rms=rms), fgrid)
     h = np.fft.irfft(d, n)
     i = np.arange(2 * half + 1)
     return h[(i - half) % n] * np.sin(np.pi * (i + 1) / (2 * half + 2)) ** 2
@@ -62,7 +64,7 @@ def apply(x: np.ndarray, profile: dict, sr: int, controls: dict, ingredients=ING
           polarity: int = 1, output_gain_db: float = 0.0) -> np.ndarray:
     """The engine's chain on x (frames, 2) with the given control signals (one value per frame):
     transport, differential, jitter_common, jitter_left/right [microseconds], flicker_common,
-    flicker_left/right, dropout_left/right [gain], background_left/right [added signal]."""
+    flicker_left/right, gainnoise_left/right, dropout_left/right [gain], background_left/right [added signal]."""
     p, n = profile, len(x)
     g = gain_db or p["gain_db"]
     y = x.astype(np.float64) * np.array([10 ** (g[c] / 20) for c in "LR"])
@@ -97,10 +99,15 @@ def apply(x: np.ndarray, profile: dict, sr: int, controls: dict, ingredients=ING
         fl = p["flicker"]
         hc = flicker_filter(fl["depth_freqs"], fl["depth_common"], sr)
         hi = flicker_filter(fl["depth_freqs"], fl["depth_indep"], sr)
+        mn = p.get("gain_noise")
         for c, side in enumerate(("left", "right")):
-            vc = signal.fftconvolve(y[:, c], hc, mode="same")
-            vi = signal.fftconvolve(y[:, c], hi, mode="same")
-            y[:, c] = y[:, c] - controls["flicker_common"] * vc - controls[f"flicker_{side}"] * vi
+            base = y[:, c].copy()
+            vc = signal.fftconvolve(base, hc, mode="same")
+            vi = signal.fftconvolve(base, hi, mode="same")
+            y[:, c] = base - controls["flicker_common"] * vc - controls[f"flicker_{side}"] * vi
+            if mn:
+                hm = flicker_filter(mn["depth_freqs"], mn["depth_L" if c == 0 else "depth_R"], sr, held=True)
+                y[:, c] -= controls[f"gainnoise_{side}"] * signal.fftconvolve(base, hm, mode="same")
 
     if "dropouts" in ingredients:
         y = y * np.stack([controls["dropout_left"], controls["dropout_right"]], axis=1)

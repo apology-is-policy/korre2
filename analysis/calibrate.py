@@ -35,6 +35,14 @@ JITTER_TOP_HZ = 4000.0  # fast timing is assumed flat from the last measured ban
 AM_KAPPA = 0.7  # demodulated AM reads ~0.7x the injected AM power (synthetic test, FINDINGS)
 TIMING_OCTS = (2000, 4000, 8000)  # octaves where the timing estimate is cleanest
 FLICKER_RATES = slice(0, 7)  # rate bands 3..384 Hz carry the flicker depth estimate
+# Gain noise: a fast wobble of each channel's level as a whole (the same depth at every frequency),
+# with a depth per channel. Its evidence is the AM at 96..384 Hz in the 1 and 2 kHz octaves, where the
+# timing's own contribution to the AM is smallest and the flicker has little left.
+GAIN_EVIDENCE = ((1000, slice(5, 6)), (2000, slice(5, 7)))  # (octave, rate bands): 96-192; 96-192 and 192-384 Hz
+# Its rate spectrum: flat to 150 Hz, gone by 600 Hz. On the metal tape the left-minus-right AM is white
+# from 12 to ~150 Hz, and the AM of neighbouring octaves moves together up to ~200 Hz and not above
+# (crossband.py), so what lies above is not one gain for the whole channel (FINDINGS 2026-11-18).
+GAINNOISE_SHAPE = dict(rate_freqs=[1.0, 150.0, 300.0, 600.0], rate_psd=[1.0, 1.0, 0.25, 0.02])
 
 
 def centres(rates):
@@ -48,6 +56,24 @@ def widths(rates):
 def mean_pm(sig, octs=TIMING_OCTS):
     """Timing power per rate band (us^2), mean over channels and the cleanest octaves."""
     return np.nanmean([sig["pm"][fc].mean(axis=0) for fc in octs], axis=0)
+
+
+def rate_share(freqs, psd, lo, hi):
+    """Share of a unit-variance process's power between lo and hi Hz, for a log-log rate table."""
+    def power(a, b):
+        a, b = max(a, freqs[0]), min(b, freqs[-1])
+        if b <= a:
+            return 0.0
+        f = np.geomspace(a, b, 2000)
+        return float(np.trapezoid(np.exp(np.interp(np.log(f), np.log(freqs), np.log(np.maximum(psd, 1e-30)))), f))
+    return power(lo, hi) / power(freqs[0], freqs[-1])
+
+
+def add_gain_noise(prof: dict):
+    """Start the profile's gain noise at nothing; update() fills it in from the first comparison."""
+    prof["gain_noise"] = dict(GAINNOISE_SHAPE, depth_freqs=[1000.0, 4000.0], depth_L=[1e-4, 1e-4], depth_R=[1e-4, 1e-4],
+                              note="fast wobble of each channel's level as a whole (track-edge contact): RMS fraction "
+                                   "per channel, the same at every frequency")
 
 
 # ---------------------------------------------------------------- initial profile
@@ -162,6 +188,7 @@ def update(prof: dict, tape: dict, emu: dict) -> list[str]:
 
     # flicker depth per octave: emu AM = kappa * injected + leakage; solve for the injected depth
     fl = prof["flicker"]
+    mn = prof.get("gain_noise")
     new = []
     for (_, _, fc), d in zip(OCT, fl["depth_total"]):
         am_t = np.nansum(tape["am"][fc].mean(axis=0)[FLICKER_RATES])
@@ -176,17 +203,38 @@ def update(prof: dict, tape: dict, emu: dict) -> list[str]:
         rho[k] += a * np.nanmean(tape["am_coh"][fc][:5] - emu["am_coh"][fc][:5])
     fl["rho"] = np.clip(rho, 0, 0.99).tolist()
     split_flicker(prof)
-    # rate spectrum of the flicker, from the two top octaves (where the flicker is largest)
+    # rate spectrum of the flicker, from the two top octaves (where the flicker is largest). If there
+    # is next to no flicker up there (the metal tape), their AM is the timing's and says nothing about
+    # the flicker's rate spectrum: leave it.
     c = centres(RATES)
-    ratio = np.nanmean([tape["am"][fc].mean(axis=0) / emu["am"][fc].mean(axis=0) for fc in (8000, 13000)], axis=0)
-    ok = ~np.isnan(ratio)
-    rr = np.clip(ratio[ok], 0.25, 4) ** a
-    rf = np.array(fl["rate_freqs"])
-    corr = np.exp(np.interp(np.log(rf), np.log(c[ok]), np.log(rr)))
-    fl["rate_psd"] = (np.array(fl["rate_psd"]) * corr).tolist()
+    if max(new[3:]) >= 0.005:
+        ratio = np.nanmean([tape["am"][fc].mean(axis=0) / emu["am"][fc].mean(axis=0) for fc in (8000, 13000)], axis=0)
+        ok = ~np.isnan(ratio)
+        rr = np.clip(ratio[ok], 0.25, 4) ** a
+        rf = np.array(fl["rate_freqs"])
+        corr = np.exp(np.interp(np.log(rf), np.log(c[ok]), np.log(rr)))
+        fl["rate_psd"] = (np.array(fl["rate_psd"]) * corr).tolist()
+        shape_note = " | rate shape x " + " ".join(f"{v:.2f}" for v in rr)
+    else:
+        shape_note = " | rate shape kept"
     notes.append("flicker depth % " + " ".join(f"{v * 100:.2f}" for v in new)
-                 + " | rho " + " ".join(f"{v:.2f}" for v in fl["rho"])
-                 + " | rate shape x " + " ".join(f"{v:.2f}" for v in rr))
+                 + " | rho " + " ".join(f"{v:.2f}" for v in fl["rho"]) + shape_note)
+
+    # gain noise: one depth per channel, by the same solve as for the flicker, with the share of its
+    # power that falls into the rate bands looked at
+    if mn:
+        for ch, name in enumerate("LR"):
+            d = float(mn[f"depth_{name}"][0])
+            am_t = am_e = share = 0.0
+            for fc, bands in GAIN_EVIDENCE:
+                am_t += float(np.nansum(tape["am"][fc][ch][bands]))
+                am_e += float(np.nansum(emu["am"][fc][ch][bands]))
+                share += sum(rate_share(mn["rate_freqs"], mn["rate_psd"], lo, hi) for lo, hi in RATES[bands])
+            leak = max(am_e - AM_KAPPA * share * d ** 2, 0.0)
+            target = np.sqrt(max(am_t - leak, 0.0) / (AM_KAPPA * share))
+            d = float(max(d + a * (target - d), 1e-4))
+            mn[f"depth_{name}"] = [d] * len(mn["depth_freqs"])
+        notes.append(f"gain noise depth % L {mn['depth_L'][0] * 100:.2f} | R {mn['depth_R'][0] * 100:.2f}")
     return notes
 
 
@@ -197,7 +245,24 @@ def summary(prof):
     P = lambda key: np.exp(np.interp(np.log(ff), np.log(j["freqs"]), np.log(np.maximum(j[key], 1e-30))))
     return (f"transport {integ(tr['freqs'], tr['psd_us2_per_hz']):.1f} us RMS; jitter common "
             f"{integ(ff, P('psd_common_us2_per_hz')):.2f} us, per channel {integ(ff, P('psd_indep_us2_per_hz')):.2f} us; "
-            f"flicker depth % at 1k..13k " + " ".join(f"{d * 100:.2f}" for d in fl["depth_total"]))
+            f"flicker depth % at 1k..13k " + " ".join(f"{d * 100:.2f}" for d in fl["depth_total"])
+            + (f"; gain noise % L {prof['gain_noise']['depth_L'][0] * 100:.2f} R {prof['gain_noise']['depth_R'][0] * 100:.2f}"
+               if "gain_noise" in prof else ""))
+
+
+def render_with_engine(render_bin, tid: str, prof: dict, profile_path: Path, seed: int, out: Path):
+    """The emulation at tape level through korre-render, registered as <tid>emu like render_emulation's."""
+    from common import decode
+    from tracks import register_virtual, track
+    t = track(tid)
+    z = np.load(OUT / f"{t.id}_aligned.npz")
+    song = next((s for s in prof["songs"] if s["id"] == t.id), None)
+    gains = song["gain_db"] if song else prof["gain_db"]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([str(render_bin), str(t.source_path), str(out), "--profile", str(profile_path), "--seed", str(seed),
+                    "--record-gain", f"{gains['L']},{gains['R']}", "--polarity", str(int(z["polarity"])), "--bits", "24"],
+                   check=True, stdout=subprocess.DEVNULL)
+    register_virtual(f"{t.id}emu", t.id, out, len(decode(t.source_path)) / int(z["sr"]), f"{t.title} (emulated)")
 
 
 def main():
@@ -212,6 +277,11 @@ def main():
     ap.add_argument("--only", default=None,
                     help="comma-separated profile sections to correct, e.g. 'transport,jitter': everything else "
                          "stays as it is (to adapt a side profile's wobble depth to one stretch of tape)")
+    ap.add_argument("--gain-noise", action="store_true",
+                    help="add gain noise to the profile if it has none (it starts at nothing)")
+    ap.add_argument("--engine", nargs="?", const=str(Path(__file__).resolve().parent.parent / "build" / "bin" / "korre-render"),
+                    help="render with the C++ engine (korre-render) instead of emulator.py: the same model "
+                         "(verify_engine.py), about ten times faster")
     ap.add_argument("--tones", choices=("song", "side"), default="song",
                     help="measure the deck's steady tones in the song's own stretch, or over the whole side "
                          "(use 'side' when the song has bass throughout)")
@@ -240,11 +310,17 @@ def main():
         print("noise replaced with the recorded-gap noise; deck tones: "
               + ", ".join(f"{t_['hz']:.2f} Hz ({t_['L_dbfs']:.0f}/{t_['R_dbfs']:.0f} dBFS)" for t_ in prof["tones"]),
               flush=True)
+    if args.gain_noise and "gain_noise" not in prof:
+        add_gain_noise(prof)
+        path.write_text(json.dumps(prof, separators=(",", ":")))
     hist_path = CAL / f"{args.track}_history.json"
     history = json.loads(hist_path.read_text()) if hist_path.exists() and not args.init else []
     emu_id = f"{args.track}emu"
     for it in range(args.iters):
-        render_emulation(args.track, prof, args.seed, CAL / f"{emu_id}.flac")
+        if args.engine:
+            render_with_engine(args.engine, args.track, prof, path, args.seed, CAL / f"{emu_id}.flac")
+        else:
+            render_emulation(args.track, prof, args.seed, CAL / f"{emu_id}.flac")
         out = subprocess.run([sys.executable, "align.py", emu_id], capture_output=True, text=True,
                              cwd=Path(__file__).parent)
         if out.returncode:

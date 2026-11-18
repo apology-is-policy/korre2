@@ -796,3 +796,82 @@ the source is not consulted. Side A does not show it.
   under music, but it was a difference the tape does not have. The set in `out/listening/MB3/` is rendered
   again from the corrected profile with a new seed: speed deviation within 0.003% per band, timing within
   7%, residual within 1 dB, response within 0.1 dB and 1°, level per octave within 0.1 dB.
+
+## 2026-11-18: gain noise. The left channel's level wobbles more, on both tapes
+
+Looking for where the metal emulation is weakest (`signature.py`, per channel instead of the mean of both):
+
+### The left channel has about 1.5 times the right's amplitude modulation at 1-2 kHz
+AM % RMS at rates 12-384 Hz, left over right, and the same ratio for the timing:
+
+| song | tape | AM L/R at 1 / 2 / 4 kHz | timing L/R |
+|---|---|---|---|
+| I Miss You | metal (MB3) | 1.50 / 1.50 / 1.13 | 1.08 / 1.10 / 1.02 |
+| I Miss You | chrome (A5) | 1.31 / 1.63 / 1.27 | 1.08 / 1.10 / 1.02 |
+| Shallow | metal (MB2) | 1.30 / 1.24 / 1.11 | 1.01 / 1.05 / 1.03 |
+| Shallow | chrome (B3) | 1.01 / 1.06 / 1.05 | 0.98 / 1.03 / 1.01 |
+| Forever Young | metal (MB7) | 1.46 / 1.38 / 1.17 | 1.04 / 1.08 / 1.04 |
+| Forever Young | chrome (A6) | 1.52 / 1.39 / 1.20 | 1.02 / 1.06 / 1.03 |
+| Join Me in Death | metal (MA3) | 2.04 / 1.53 / 1.19 | 1.03 / 1.02 / 1.01 |
+| Join Me in Death | chrome (A2) | 1.35 / 1.19 / 1.07 | 1.03 / 1.04 / 1.02 |
+
+Seven of eight, on both tapes and both capture chains, so it belongs to the deck and the format: on a
+cassette the left track is the one along the tape's edge. The model had the same flicker depth for both
+channels, so the emulation was symmetric: on MB3 its residual at 1 kHz was 1.0 dB too clean on the left
+(−24.9 against −23.9 dB) and right on the right.
+
+### It multiplies the signal (`levelsplit.py`)
+AM % at 96-384 Hz in the 1 kHz octave, in 85 ms blocks sorted by the band's own level (quietest to
+loudest sixth, a 19 dB range):
+- metal I Miss You, left: 2.01 1.72 2.04 1.96 1.64 1.56. Flat: it scales with the signal.
+- the same, right: 1.69 1.34 1.34 1.23 1.05 0.92. Falls with level, as added noise does.
+- the emulation (v0.4), both channels: 1.72 … 0.86 and 1.81 … 0.80. Added noise only, as built.
+Forever Young on the metal: left flat at 1.2-1.3%, right 1.07 … 0.86. It reaches down to the 250 Hz octave
+(there, at 24-80 Hz: left 0.8-1.0%, right 0.5-0.8%). Chrome Shallow, the exception in the table above, falls with
+level in both channels.
+
+### It is one gain for the channel up to about 200 Hz, and something else above (`crossband.py`)
+Coherence of the demodulated AM between octave bands of the left channel, rates 3-12 / 12-48 / 48-96 /
+96-192 / 192-340 Hz: 1 with 2 kHz 0.42 / 0.40 / 0.34 / 0.29 / 0.11; 2 with 4 kHz 0.58 / 0.54 / 0.47 / 0.38 /
+0.16; 1 with 4 kHz 0.22 / 0.23 / 0.22 / 0.24 / 0.10. An emulation with no gain shared between those bands
+(the one rendered at that point: the first, rejected version of the new ingredient) reads 0.05, 0.04, 0.03
+at 96-192 Hz.
+So neighbouring bands move together up to ~200 Hz and not above. (The same script shows no coherence of
+the *timing* between bands above 96 Hz, on the tape and equally on the emulation, whose jitter is a true
+time shift: the estimator cannot tell there, and nothing follows from it.)
+
+### Model v0.5: gain noise (`emulator.py`, `tape/`, profile section `gain_noise`)
+A wobble of each channel's level as a whole: one random gain per channel, the same depth at every
+frequency, rate spectrum flat to 150 Hz and gone by 600 Hz, a depth per channel. It sits with the flicker
+(same switch). A first version with a spectrum running on as 1/f to 4 kHz was rejected by the calibration
+itself: at those rates the gain spreads the strong bass into the higher bands as noise, and the fit pulled
+the depth back to nothing.
+Fitted on MB3 (`profiles/wmd6c_metalxr_v2.json`; `calibrate.py --gain-noise --engine`, three rounds on
+flicker and gain noise, four on everything but the response): **gain noise 2.3% RMS left, 0.95% right.**
+Tape against emulation, before (v1, seed 2) and after (v2):
+
+| | tape | v1 | v2 |
+|---|---|---|---|
+| residual at 1 kHz, L / R, dB | −23.9 / −24.5 | −24.9 / −24.7 | −23.9 / −24.7 |
+| residual at 2 kHz, L / R, dB | −18.4 / −19.0 | −18.9 / −19.1 | −18.5 / −19.0 |
+| AM % at 1 kHz, 96-192 Hz, L / R | 1.09 / 0.65 | 0.62 / 0.60 | 1.12 / 0.63 |
+| AM % at 2 kHz, 96-192 and 192-384 Hz, L | 1.14, 1.15 | 0.74, 0.83 | 1.15, 1.07 |
+| AM % at 2 kHz, 96-192 and 192-384 Hz, R | 0.71, 0.71 | 0.68, 0.71 | 0.69, 0.69 |
+| timing at 8 kHz, 384-2800 Hz, us | 1.17 1.41 1.47 | 1.24 1.47 1.52 | 1.21 1.44 1.50 |
+| timing at 1 kHz, 3-12 Hz, us | 2.71 3.25 | 2.56 2.92 | 2.72 3.14 |
+
+In the refit the flicker moved as well: at 1-4 kHz down to 0.8 / 1.6 / 1.3% (the gain noise took its place),
+and at 13 kHz up from nothing to 9%, while the fast jitter came down 3-7%. Those two trade against each
+other at 13 kHz (timing makes AM there too); the AM at 13 kHz matches within 5% in both channels either way.
+
+Still not modelled: the left's extra timing at 1-2 kHz (8-10% above the right; not a time shift, since it
+is absent at 4-8 kHz); AM on the right at 4 kHz, 96-192 Hz (1.03 against 1.23%); and whatever the
+modulation above ~200 Hz is. The chrome profiles have no gain noise yet, though side A shows the same
+left-right difference.
+
+Listening set from v2, rendered with the C++ engine: `out/listening/MB3_v2/` (seed 3; `out/listening/MB3/`,
+the v1 pair the owner has yet to hear, is untouched). Measured: speed deviation within 0.002% per band,
+residual within 0.6 dB per octave (−24.2 / −25.1 dB at 1 kHz against −23.9 / −24.5), response within 0.1 dB
+above 100 Hz. At 30 Hz it rolls off 0.4-0.5 dB less than the tape and the left-minus-right signal in the
+31.5 Hz octave is ~1.2 dB stronger: the engine's short response filter (`tape/README.md`), which a set
+rendered by `emulator.py` does not have. Fitting the response table through the engine would remove it.

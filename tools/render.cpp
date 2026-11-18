@@ -282,6 +282,10 @@ int main(int argc, char** argv)
         write_raw(dir / "flicker_common.f64", trace.flicker_common, lag.total, frames);
         write_raw(dir / "flicker_left.f64", trace.flicker_own[0], lag.total, frames);
         write_raw(dir / "flicker_right.f64", trace.flicker_own[1], lag.total, frames);
+        write_raw(dir / "gainnoise_left.f64", trace.gain_noise[0], lag.total, frames);
+        write_raw(dir / "gainnoise_right.f64", trace.gain_noise[1], lag.total, frames);
+        write_raw(dir / "gainnoise_filter_left.f64", trace.gain_noise_filter[0], 0, trace.gain_noise_filter[0].size());
+        write_raw(dir / "gainnoise_filter_right.f64", trace.gain_noise_filter[1], 0, trace.gain_noise_filter[1].size());
         write_raw(dir / "dropout_left.f64", trace.dropout_gain[0], lag.total, frames);
         write_raw(dir / "dropout_right.f64", trace.dropout_gain[1], lag.total, frames);
         write_raw(dir / "background_left.f64", trace.background[0], lag.total, frames);

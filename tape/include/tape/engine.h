@@ -7,7 +7,8 @@
 //   -> static response per channel, magnitude and phase
 //   -> timing, one moving delay per channel: slow transport wobble, the slow left-right difference,
 //      and fast jitter (a part common to both channels and a part of each channel's own)
-//   -> amplitude flicker, deeper towards the treble
+//   -> amplitude flicker, deeper towards the treble, and gain noise (a fast wobble of each
+//      channel's level as a whole, with a depth per channel)
 //   -> dropouts -> the background: noise and the deck's faint steady tones -> polarity
 //
 // The model and its numbers come from analysis/emulator.py; this is its streaming form. Nothing in
@@ -33,7 +34,7 @@ enum class ingredient : std::uint32_t
     transport = 1u << 1,    ///< slow wobble common to both channels
     differential = 1u << 2, ///< slow left-right timing difference
     jitter = 1u << 3,       ///< fast timing jitter
-    flicker = 1u << 4,      ///< amplitude flicker
+    flicker = 1u << 4,      ///< amplitude flicker and gain noise
     dropouts = 1u << 5,
     hiss = 1u << 6,       ///< noise and the steady tones
     saturation = 1u << 7, ///< both saturation stages
@@ -87,6 +88,7 @@ struct trace
     std::array<std::vector<double>, 2> jitter_own;
     std::vector<double> flicker_common;
     std::array<std::vector<double>, 2> flicker_own;
+    std::array<std::vector<double>, 2> gain_noise; ///< zeros if the profile has none
     std::array<std::vector<double>, 2> dropout_gain;
     std::array<std::vector<double>, 2> background; ///< noise plus tones, as added to the signal
 
@@ -95,6 +97,7 @@ struct trace
     std::size_t response_pre = 0; ///< tap of the response filter that is time zero
     std::vector<double> flicker_filter_common;
     std::vector<double> flicker_filter_own;
+    std::array<std::vector<double>, 2> gain_noise_filter; ///< empty if the profile has none
 };
 
 class engine

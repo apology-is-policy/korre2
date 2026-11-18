@@ -9,7 +9,9 @@
 #include <complex>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <numbers>
+#include <sstream>
 #include <vector>
 
 #include "check.h"
@@ -253,6 +255,31 @@ void test_profile()
         CHECK(metal->dropouts.events.size() == 1);
     }
 
+    // Gain noise is an optional section: read when present, checked like the others.
+    {
+        std::ifstream file(profiles / "wmd6c_xlii_sideB.json");
+        std::stringstream text;
+        text << file.rdbuf();
+        const std::string base = text.str();
+        const auto at = base.find("\"dropouts\":");
+        CHECK(at != std::string::npos);
+        const auto with = [&](const std::string& section) { return base.substr(0, at) + section + base.substr(at); };
+        const auto good = parse_profile(with(R"("gain_noise":{"rate_freqs":[1,150,4000],"rate_psd":[1,1,0.04],)"
+                                             R"("depth_freqs":[1000,2000,4000],"depth_L":[0.02,0.02,0.015],"depth_R":[0.01,0.01,0.01]},)"));
+        CHECK_MSG(good.has_value(), good ? std::string() : good.error());
+        if (good)
+        {
+            CHECK(good->gain_noise.has_value());
+            CHECK(good->gain_noise->depth[0].size() == 3 && good->gain_noise->depth[0][2] == 0.015);
+            CHECK(good->gain_noise->depth[1][0] == 0.01 && good->gain_noise->rate_freqs.back() == 4000);
+        }
+        const auto bad = parse_profile(with(R"("gain_noise":{"rate_freqs":[1,150,4000],"rate_psd":[1,1,0.04],)"
+                                            R"("depth_freqs":[1000,2000,4000],"depth_L":[0.02,0.02],"depth_R":[0.01,0.01,0.01]},)"));
+        CHECK(!bad.has_value() && bad.error().find("gain noise") != std::string::npos);
+        const auto none = parse_profile(base);
+        CHECK(none.has_value() && !none->gain_noise.has_value());
+    }
+
     CHECK(!load_profile(profiles / "no_such_profile.json").has_value());
     CHECK(!parse_profile("this is not json").has_value());
     const auto v1 = parse_profile(R"({"version": 1})");
@@ -447,6 +474,79 @@ void test_engine()
         }
         CHECK_MSG(biggest[1] < 1.5 * std::max(biggest[0], biggest[2]),
                   "largest step " + std::to_string(biggest[1]) + " against " + std::to_string(std::max(biggest[0], biggest[2])));
+    }
+
+    // ---- gain noise: an amplitude noise of the depth the profile gives each channel
+    {
+        profile noisy = p;
+        std::fill(noisy.flicker.depth_common.begin(), noisy.flicker.depth_common.end(), 0.0);
+        std::fill(noisy.flicker.depth_indep.begin(), noisy.flicker.depth_indep.end(), 0.0);
+        profile::gain_noise_set mn;
+        mn.rate_freqs = {1.0, 200.0}; // slow enough to read off the envelope below
+        mn.rate_psd = {1.0, 1.0};
+        mn.depth_freqs = {1000.0, 4000.0};
+        mn.depth = {std::vector<double>{0.03, 0.03}, std::vector<double>{0.0, 0.0}}; // 3% on the left, none on the right
+        noisy.gain_noise = mn;
+
+        settings s = plain;
+        s.ingredients = static_cast<std::uint32_t>(ingredient::flicker);
+        engine e(noisy, s);
+        const std::size_t n = 44100 * 4;
+        std::vector<float> tone(2 * n);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            tone[2 * i] = tone[2 * i + 1] = static_cast<float>(0.5 * std::sin(2 * std::numbers::pi * 1000.0 * static_cast<double>(i) / sr));
+        }
+        const auto out = run(e, tone);
+        // The tone's level in 2 ms pieces (two periods each): how much it wanders, relative to its mean.
+        double wander[2];
+        for (int c = 0; c < 2; ++c)
+        {
+            std::vector<double> level;
+            const std::size_t piece = 88;
+            for (std::size_t at = 4000; at + piece <= n; at += piece)
+            {
+                double sum = 0;
+                for (std::size_t i = 0; i < piece; ++i)
+                {
+                    const double v = out[2 * (at + i) + static_cast<std::size_t>(c)];
+                    sum += v * v;
+                }
+                level.push_back(std::sqrt(sum / static_cast<double>(piece)));
+            }
+            double mean = 0, var = 0;
+            for (const double v : level)
+            {
+                mean += v;
+            }
+            mean /= static_cast<double>(level.size());
+            for (const double v : level)
+            {
+                var += (v - mean) * (v - mean);
+            }
+            wander[c] = std::sqrt(var / static_cast<double>(level.size())) / mean;
+        }
+        CHECK_MSG(wander[0] > 0.022 && wander[0] < 0.033, "left: " + std::to_string(100 * wander[0]) + "% for a depth of 3%");
+        CHECK_MSG(wander[1] < 0.002, "right: " + std::to_string(100 * wander[1]) + "% for a depth of 0");
+
+        // Switched off with the flicker, and the same seed still gives the same other signals.
+        e.set_ingredients(0);
+        run(e, tone);
+        const auto quiet = run(e, tone);
+        bool steady = true;
+        for (std::size_t i = 2 * 4000; i + 2 * 441 < quiet.size(); i += 2 * 441) // ten periods apart: equal samples
+        {
+            steady = steady && std::fabs(quiet[i] - quiet[i + 2 * 441]) < 1e-6f;
+        }
+        CHECK_MSG(steady, "no modulation left with the flicker switched off");
+        settings both = plain;
+        engine with_noise(noisy, both), without_noise(p, both);
+        trace a, b;
+        std::vector<float> scratch(audio.size());
+        with_noise.process(audio, scratch, a);
+        without_noise.process(audio, scratch, b);
+        CHECK(a.transport == b.transport && a.jitter_own == b.jitter_own && a.flicker_own == b.flicker_own && a.background == b.background);
+        CHECK(a.gain_noise[0] != b.gain_noise[0]);
     }
 
     // ---- other sample rates, and the other profiles

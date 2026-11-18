@@ -115,6 +115,23 @@ double flicker_depth(const std::vector<double>& freqs, const std::vector<double>
     return std::exp(std::log(depth(i)) + t * (std::log(depth(i + 1)) - std::log(depth(i))));
 }
 
+double held_depth(const std::vector<double>& freqs, const std::vector<double>& rms, double f) noexcept
+{
+    const double floor_f = std::max(f, 1.0);
+    const auto depth = [&](std::size_t i) { return std::max(rms[i], 1e-6); };
+    if (floor_f <= freqs.front())
+    {
+        return depth(0);
+    }
+    if (floor_f >= freqs.back())
+    {
+        return depth(freqs.size() - 1);
+    }
+    const std::size_t i = bracket(freqs, floor_f);
+    const double t = (std::log(floor_f) - std::log(freqs[i])) / (std::log(freqs[i + 1]) - std::log(freqs[i]));
+    return std::exp(std::log(depth(i)) + t * (std::log(depth(i + 1)) - std::log(depth(i))));
+}
+
 sizes sizes_for(double sample_rate) noexcept
 {
     sizes s;
@@ -180,7 +197,7 @@ std::vector<double> response_filter(const profile& p, int channel, double sample
     return out;
 }
 
-std::vector<double> flicker_filter(const std::vector<double>& freqs, const std::vector<double>& rms, double sample_rate)
+std::vector<double> flicker_filter(const std::vector<double>& freqs, const std::vector<double>& rms, double sample_rate, bool held)
 {
     const std::size_t half = sizes_for(sample_rate).flicker_half;
     const std::size_t n = pow2_ceil(32 * half);
@@ -189,7 +206,7 @@ std::vector<double> flicker_filter(const std::vector<double>& freqs, const std::
     for (std::size_t k = 0; k <= n / 2; ++k)
     {
         const double f = static_cast<double>(k) * sample_rate / static_cast<double>(n);
-        x[k] = flicker_depth(freqs, rms, f);
+        x[k] = held ? held_depth(freqs, rms, f) : flicker_depth(freqs, rms, f);
     }
     for (std::size_t k = 1; k < n / 2; ++k)
     {
