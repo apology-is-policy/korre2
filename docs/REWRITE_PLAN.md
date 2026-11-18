@@ -66,6 +66,14 @@ cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DKORRE_SANITIZE=thread && cma
 - The treble-saturation stage's effect on the mids (see Open).
 - HRIR stage.
 
+From the metal refinement pass of 2026-11-18 (`analysis/FINDINGS.md`):
+- Fit the response table through the engine (`calibrate.py --engine` without `--only`), so that the
+  engine's short bass filter no longer leaves 0.4-0.5 dB at 30 Hz against the tape.
+- Cross-song check of `wmd6c_metalxr_v2` on Forever Young (MB7; record gain L -5.61 / R -6.15 dB).
+- Gain noise for the chrome profiles (side A shows the same left-right difference).
+- Pin down the 13 kHz flicker against the fast jitter in the v2 fit; the left channel's extra timing at 1-2 kHz.
+- Once the blind pairs are judged, keep one metal profile and drop the other.
+
 ## Decisions taken as defaults (say so if you want otherwise)
 - Keep PortAudio and the vendored imtui / pffft / minimp3.
 - Vendor a single-header JSON reader for the profiles.
