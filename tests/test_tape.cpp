@@ -258,9 +258,10 @@ void test_profile()
         CHECK(metal->dropouts.events.size() == 1);
     }
 
-    // Gain noise is an optional section: read when present, checked like the others.
+    // Gain noise is an optional section: read when present, checked like the others. (Spliced into
+    // the first metal profile, which was fitted before the model had it.)
     {
-        std::ifstream file(profiles / "wmd6c_xlii_sideB.json");
+        std::ifstream file(profiles / "wmd6c_metalxr.json");
         std::stringstream text;
         text << file.rdbuf();
         const std::string base = text.str();
@@ -595,7 +596,7 @@ void test_engine()
 // The wobble's steady lines: sines of constant level, where the table's noise would fade in and out.
 void test_lines()
 {
-    const auto loaded = load_profile(profiles / "wmd6c_xlii_sideB.json");
+    const auto loaded = load_profile(profiles / "wmd6c_metalxr.json");
     CHECK(loaded.has_value());
     if (!loaded)
     {
@@ -618,21 +619,42 @@ void test_lines()
         }
     }
 
+    // The chrome profile's capstan: two lines of 5 to 8 us a hair apart, with phases (the recording's
+    // flutter and the playback's, which beat), and the pinch roller's likewise.
+    {
+        const auto chrome = load_profile(profiles / "wmd6c_xlii_sideB.json");
+        CHECK_MSG(chrome.has_value(), chrome ? std::string() : chrome.error());
+        if (chrome)
+        {
+            int capstan = 0, phased = 0;
+            for (const auto& l : chrome->transport.lines)
+            {
+                phased += l.phase ? 1 : 0;
+                capstan += (l.phase && std::fabs(l.hz - 7.5255) < 0.01 && l.us > 5.0 && l.us < 8.0) ? 1 : 0;
+            }
+            CHECK_MSG(capstan == 2 && phased >= 4 && phased % 2 == 0, std::to_string(capstan) + " capstan lines, " + std::to_string(phased) + " with a phase");
+        }
+    }
+
     // Read from the profile's text, and refused when a line makes no sense.
     {
-        std::ifstream file(profiles / "wmd6c_xlii_sideB.json");
+        std::ifstream file(profiles / "wmd6c_metalxr.json");
         std::stringstream text;
         text << file.rdbuf();
         const std::string base = text.str();
         const auto at = base.find("\"crossover_hz\":");
         CHECK(at != std::string::npos);
         const auto with = [&](const std::string& section) { return base.substr(0, at) + section + base.substr(at); };
-        const auto good = parse_profile(with(R"("lines":[{"hz":7.52,"us":6.5},{"hz":15.04,"us":1.5}],)"));
+        const auto good = parse_profile(with(R"("lines":[{"hz":7.52,"us":6.5,"phase":1.25},{"hz":15.04,"us":1.5}],)"));
         CHECK_MSG(good.has_value(), good ? std::string() : good.error());
         if (good)
         {
             CHECK(good->transport.lines.size() == 2 && good->transport.lines[1].hz == 15.04 && good->transport.lines[0].us == 6.5);
+            // a phase is optional: the first line starts at 1.25 rad, the second wherever the seed puts it
+            CHECK(good->transport.lines[0].phase && *good->transport.lines[0].phase == 1.25 && !good->transport.lines[1].phase);
         }
+        const auto bad_phase = parse_profile(with(R"("lines":[{"hz":7.52,"us":6.5,"phase":"late"}],)"));
+        CHECK(!bad_phase.has_value());
         const auto bad = parse_profile(with(R"("lines":[{"hz":0,"us":6.5}],)"));
         CHECK(!bad.has_value() && bad.error().find("lines") != std::string::npos);
         const auto incomplete = parse_profile(with(R"("lines":[{"hz":7.5}],)"));
@@ -643,8 +665,8 @@ void test_lines()
     std::fill(p.transport.psd_us2_per_hz.begin(), p.transport.psd_us2_per_hz.end(), 0.0);
     std::fill(p.differential.psd_us2_per_hz.begin(), p.differential.psd_us2_per_hz.end(), 0.0);
     const double crossover = p.transport.crossover_hz; // 45 Hz: the fade runs from 40 to 50
-    p.transport.lines = {{7.5, 6.0}, {crossover + 2.0, 4.0}, {crossover + 15.0, 3.0}};
-    p.differential.lines = {{1.5, 2.0}};
+    p.transport.lines = {{7.5, 6.0, {}}, {crossover + 2.0, 4.0, {}}, {crossover + 15.0, 3.0, {}}}; // no phase given: drawn from the seed
+    p.differential.lines = {{1.5, 2.0, {}}};
 
     const double sr = 44100;
     const std::size_t frames = 4 * 44100; // whole periods of every line but the faded one
@@ -704,12 +726,46 @@ void test_lines()
     CHECK_NEAR(level_at(b.transport, 7.5, 0, frames), std::numbers::sqrt2 * 6.0, 0.05);
     CHECK(again.transport == a.transport && again.differential == a.differential);
 
+    // A line with a phase starts there whatever the seed, and two such lines a hair apart beat: the
+    // recording's flutter and the playback's on one tape. Here 7.5 and 7.6 Hz, opposite at the start:
+    // nothing at first, both together (twice one line) after five seconds.
+    {
+        p.transport.lines = {{7.5, 5.0, 0.0}, {7.6, 5.0, std::numbers::pi}};
+        p.differential.lines = {{1.5, 2.0, {}}};
+        const trace one = traced(1), two = traced(2);
+        double worst = 0;
+        for (std::size_t i = 0; i < frames; ++i)
+        {
+            const double t = static_cast<double>(i) / sr;
+            const double expected =
+                5.0 * std::numbers::sqrt2 * (std::sin(2 * std::numbers::pi * 7.5 * t) + std::sin(2 * std::numbers::pi * 7.6 * t + std::numbers::pi));
+            worst = std::max(worst, std::fabs(one.transport[i] - expected));
+        }
+        CHECK_MSG(worst < 1e-6, "a pair of lines with phases against sin(): " + std::to_string(worst) + " us");
+        // the beat: 2 * 7.07 * |sin(pi * 0.1 * t)| peak, so next to nothing in the first 50 ms and most of it by 3.5 s
+        const double early = *std::max_element(one.transport.begin(), one.transport.begin() + 2205);
+        const double late = *std::max_element(one.transport.begin() + 3 * 44100, one.transport.end());
+        CHECK_MSG(early < 0.25 && late > 1.8 * 5.0 * std::numbers::sqrt2 * 0.95, "beat: " + std::to_string(early) + " then " + std::to_string(late) + " us");
+        CHECK(two.transport == one.transport);         // phases given: the seed has no say
+        CHECK(two.differential != one.differential);   // none given: it has
+        p.transport.lines = {{7.5, 5.0, 0.5 + 6.0 * std::numbers::pi}}; // a phase beyond one turn is the same phase
+        const trace wound = traced(1);
+        p.transport.lines = {{7.5, 5.0, 0.5}};
+        const trace plain = traced(1);
+        double apart = 0;
+        for (std::size_t i = 0; i < frames; ++i)
+        {
+            apart = std::max(apart, std::fabs(wound.transport[i] - plain.transport[i]));
+        }
+        CHECK(apart < 1e-9);
+    }
+
     // The lines move the sound: a 1 kHz tone through the engine with only the transport on comes out
     // shifted in time by up to the lines' peak.
     {
         profile only = *loaded;
         std::fill(only.transport.psd_us2_per_hz.begin(), only.transport.psd_us2_per_hz.end(), 0.0);
-        only.transport.lines = {{7.5, 20.0}};
+        only.transport.lines = {{7.5, 20.0, {}}};
         settings t = s;
         t.ingredients = static_cast<std::uint32_t>(ingredient::transport);
         t.record_gain_db = stereo{0.0, 0.0};
@@ -746,7 +802,7 @@ void test_lines()
 // The flat cubic: one level for both channels or one each, and the distortion it makes.
 void test_cubic()
 {
-    std::ifstream file(profiles / "wmd6c_xlii_sideB.json");
+    std::ifstream file(profiles / "wmd6c_metalxr.json"); // the first metal profile: one number for both channels
     std::stringstream text;
     text << file.rdbuf();
     const std::string base = text.str();

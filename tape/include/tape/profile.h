@@ -58,10 +58,20 @@ struct profile
         /// A rotating part's own wobble (the capstan's 7.5 Hz, its harmonics, the motor): a steady
         /// sine. Kept apart from the table because a narrow peak in a noise spectrum fades in and out
         /// over tens of seconds, which the deck's lines do not. Absent in older profiles.
+        ///
+        /// A tape recorded and played on the same deck carries each such line twice: once frozen into
+        /// the tape when it was recorded, once added when it is played, a hair apart in frequency
+        /// (the tape did not run at exactly the same speed both times). The two beat: over minutes
+        /// the flutter swells to the sum of the two and fades to their difference. A profile lists
+        /// them as two lines; with `phase` on both, the beat starts where it stood on the fitted
+        /// stretch of tape.
         struct line
         {
             double hz = 0;
             double us = 0; ///< RMS, microseconds
+            /// The sine's phase at the first sample, radians: us * sqrt(2) * sin(2 pi hz t + phase).
+            /// Without it the line starts at a phase drawn from the seed.
+            std::optional<double> phase;
         };
         std::vector<line> lines;
     };

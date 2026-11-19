@@ -7,7 +7,8 @@ Signal chain, in physical order:
   -> timing, one warp per channel:
        transport   slow common wobble: a noise spectrum, and the mechanical lines (pinch roller,
                    capstan, motor, their harmonics) as sines of constant level where the profile
-                   lists them (transport.lines; v0.6)
+                   lists them (transport.lines; v0.6). A line may carry its phase: a part's wobble
+                   from the recording and from the playback are two lines a hair apart, which beat
        differential  slow L-R wobble (pinch roller tilting the tape)
        jitter      fast timing (scrape flutter), 20 Hz .. 3 kHz rates, a common part and a part
                    independent per channel
@@ -192,7 +193,9 @@ class Emulator:
         for key, attr, fades in (("transport", "transport_us", True), ("differential", "diff_us", False)):
             sec = p[key]
             for line in sec.get("lines", []):
-                ph0 = rng.uniform(0, 2 * np.pi)
+                ph0 = rng.uniform(0, 2 * np.pi)  # drawn for every line, used or not
+                if line.get("phase") is not None:  # a line of a pair that beats: where it stood on the fitted tape
+                    ph0 = float(line["phase"])
                 fade = float(np.clip((sec["crossover_hz"] + 5 - line["hz"]) / 10, 0, 1)) if fades else 1.0
                 setattr(self, attr, getattr(self, attr) + np.sqrt(2 * fade) * line["us"] * np.sin(2 * np.pi * line["hz"] * tt + ph0))
 

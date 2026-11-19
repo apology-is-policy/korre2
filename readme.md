@@ -41,7 +41,10 @@ build/bin/korre-render song.flac song_on_tape.flac --profile profiles/wmd6c_xlii
 |---|---|
 | `wmd6c_xlii_sideB.json` | WM-D6C, chrome (type II) cassette, side B; captured from the line output |
 | `wmd6c_xlii_sideA.json` | the same cassette, side A |
-| `wmd6c_metalxr.json` | WM-D6C, Sony Metal XR; captured from the headphone output into headphones |
+| `wmd6c_xlii_sideA_A5wobble.json` | side A again, with the wobble of another stretch of it |
+| `wmd6c_metalxr_v2.json` | WM-D6C, Sony Metal XR; captured from the headphone output into headphones |
+| `wmd6c_metalxr_v2_MB2.json` | the same metal tape, fitted to another song's stretch (the one of the latest listening test) |
+| `wmd6c_metalxr.json` | the first fit of the metal tape, kept for comparison (no gain noise, no flutter lines) |
 
 `korre-render --help` lists the options: the random seed, which parts of the model to apply, how hard
 the tape is driven, output level and format. The output has the level of a real capture, which sits

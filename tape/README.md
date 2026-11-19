@@ -79,6 +79,12 @@ numpy.
    mechanical lines do not do that, so a profile can list them apart (`transport.lines`,
    `differential.lines`: frequency and RMS level), and they are then generated as sines of
    constant level with a random starting phase, by the engine and the model alike.
+   A line may also carry its `phase` (radians at the first sample). That is for the pairs: a tape
+   recorded and played on the same deck holds a rotating part's wobble twice, from the recording
+   and from the playback, a hair apart in frequency (the tape did not run at quite the same
+   speed both times), and the two beat over minutes: the capstan's flutter swells to twice one
+   pass and fades to nothing. A profile lists both lines with their phases, so the beat stands
+   where it stood on the fitted stretch of tape (`analysis/beatfit.py`).
 
 ## How it is checked
 

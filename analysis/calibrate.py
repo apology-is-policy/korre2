@@ -276,6 +276,11 @@ def update(prof: dict, tape: dict, emu: dict) -> list[str]:
     corr = np.exp(np.interp(np.log(np.maximum(f, 0.1)), np.log(pts_f), np.log(pts_r)))
     tr["psd_us2_per_hz"] = (np.array(tr["psd_us2_per_hz"]) * corr).tolist()
     for line in tr.get("lines", []):  # the steady lines follow the same correction, at their own frequency
+        if "phase" in line:
+            # One of a pair that beats (beatfit.py): both were measured on the tape directly, amplitude
+            # and phase. Near a null of the beat a few degrees of phase decide how much line is left,
+            # and a correction of the amplitude from that would be wrong.
+            continue
         line["us"] *= float(np.exp(0.5 * np.interp(np.log(line["hz"]), np.log(pts_f), np.log(pts_r))))
     n_low = len(low)
     notes.append("transport x " + " ".join(f"{v:.2f}" for v in pts_r[:n_low])

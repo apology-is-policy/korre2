@@ -501,13 +501,16 @@ engine::impl::impl(const profile& p, const settings& s)
     slow.emplace_back(transport_psd, sample_rate, size.control_step, slow_block, rng(s.seed, stream_transport));
     slow.emplace_back(differential_psd, sample_rate, size.control_step, slow_block, rng(s.seed, stream_differential));
 
-    // The steady lines, each starting at a random phase. The transport's fade out with its table.
+    // The steady lines, each starting at the phase its profile gives it or else at a random one. The
+    // transport's fade out with its table.
     rng line_random(s.seed, stream_lines);
     double lines_variance[2] = {0.0, 0.0};
     const auto add_lines = [&](const profile::wobble& w, std::vector<flutter_line>& into, double& variance, bool fades) {
         for (const auto& l : w.lines)
         {
-            const double phase = line_random.uniform() * 2.0 * std::numbers::pi; // drawn for every line, used or not
+            const double drawn = line_random.uniform() * 2.0 * std::numbers::pi; // drawn for every line, used or not
+            const double turn = 2.0 * std::numbers::pi;
+            const double phase = l.phase ? *l.phase - turn * std::floor(*l.phase / turn) : drawn; // within one turn
             const double fade_out = fades ? std::clamp((w.crossover_hz + 5.0 - l.hz) / 10.0, 0.0, 1.0) : 1.0;
             const double rms = l.us * std::sqrt(fade_out);
             if (rms <= 0 || l.hz >= 0.45 * sample_rate)

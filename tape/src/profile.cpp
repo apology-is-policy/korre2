@@ -112,6 +112,10 @@ std::vector<profile::wobble::line> lines(const json& object, const std::string& 
         {
             throw profile_error{where + "lines: a line needs a positive frequency and a level that is not negative"};
         }
+        if (e.contains("phase") && !e.at("phase").is_null())
+        {
+            l.phase = number(e, "phase", where + "lines.");
+        }
         out.push_back(l);
     }
     return out;

@@ -72,21 +72,25 @@ through a real output device; that path still has no test of its own): the spect
 `level_meter.*`: RMS or peak reading, a sticky mark per channel), the windows' default places (queue and
 selector left, player in the middle, meter right), and the player window shown from the start.
 
-From the tape model (`analysis/FINDINGS.md`, 2026-11-18):
-- Model v0.6 is in the engine: the wobble's mechanical lines as steady sines (`transport.lines`). Only
-  the Shallow profile of the metal tape (`wmd6c_metalxr_v2_MB2`) has them so far. The other profiles
-  still carry their lines as peaks in the noise table, which fade in and out: `calibrate.py --lines` and
-  a few rounds each.
-- Wobble depth belongs to a stretch of tape (Shallow's is 1.7 times I Miss You's on the same side). A
-  profile per song is the honest unit for blind tests; for the player, a tape profile needs a typical
-  depth or a depth that moves along the tape.
-- A profile fitted through the engine absorbs most of the engine's bass-filter difference (0.1-0.3 dB at
-  30-50 Hz left). A longer filter does not help (FINDINGS).
-- The jitter table has one point per octave between 48 and 96 Hz and cannot follow the lines there.
-- Gain noise for the chrome profiles (side A shows the same left-right difference).
-- The left channel's extra timing at 1-2 kHz.
+From the tape model (`analysis/FINDINGS.md`, 2026-11-19):
+- All profiles but the first metal one carry their flutter lines as lines now, and the rotating parts'
+  lines as pairs with phases: the recording's wobble and the playback's, which beat (`transport.lines`
+  with `phase`; the engine reads it). The capstan's flutter is one number for the deck, 6 to 7 us RMS per
+  pass; what looked like a depth per stretch of tape was the place in the beat. A profile carries the
+  beat as it stood on the fitted song. For the player a typical tape would start anywhere in it: take
+  the phases out of a profile and the engine draws them from the seed.
+- Distortion is fitted per channel on the metal profiles (the left track has more). The chrome
+  profiles have no flat cubic left; their treble-saturation stage alone makes 2 to 9 dB more third-order
+  products than the chrome tape shows while giving the right loss of treble. It bends the waveform; the
+  tape seems to follow the treble's envelope. A stage that does that is the next change to the model.
+- The alignment has a second, linear stage (`analysis/align.py`), and every figure for timing and
+  roughness from before 2026-11-19 is on the old basis.
+- Still open: 250 Hz in the quieter passages (the emulations leave about 1 dB more than the tapes);
+  the wobble between the channels at 3-12 Hz (20% low, no rule for it); the jitter table's one point per
+  octave between 48 and 96 Hz.
 - The owner could not tell `MB3_v2` from the tape and told `MB3` (v1) apart: `wmd6c_metalxr_v2` is the
-  metal profile to keep; `wmd6c_metalxr` (v1) can go once nothing refers to it.
+  metal profile to keep; `wmd6c_metalxr` (v1) stays as the tests' example of a profile from before
+  lines and gain noise.
 
 ## Decisions taken as defaults (say so if you want otherwise)
 - Keep PortAudio and the vendored imtui / pffft / minimp3.

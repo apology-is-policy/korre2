@@ -1289,3 +1289,122 @@ check 4 showed it (−20.9 instead of −25.2 dB at 20–60 Hz). The response st
 the tape (0.44 against 0.58 µs; the calibration has no rule for it); the tape has a little second-order
 distortion (−49.5 dB, 11 dB below the third) and the model none; two of the motor's lines near 36–40 Hz sit at
 slightly different frequencies in profile and tape.
+
+## 2026-11-19 (later): a flutter line is two lines, and they beat. The capstan's flutter is one number for the deck
+Item 3 of the pass was to give the other profiles the steady flutter lines Shallow's has. Refitted on
+the new alignment with `--lines`, each came out with a steady capstan line of its own size: 13.2 µs
+(Shallow, metal), 8.3 (I Miss You, metal), 3.5 (Shallow, chrome side B), 8.7 (Forever Young, side A), and on
+Big in Japan (A5) the fit was still cutting it by a quarter a round after four rounds. The check against
+each tape showed why. The capstan line in 15 s stretches, µs RMS, from the delay curve:
+
+| | |
+|---|---|
+| Shallow, metal (MB2) | 13.6 13.9 13.8 13.9 13.9 14.0 14.1 13.9 13.8 13.3 12.8 12.5 |
+| I Miss You, metal (MB3) | 4.1 4.6 5.1 5.8 6.6 7.3 7.8 8.3 9.4 10.1 10.7 10.9 11.3 |
+| Shallow, chrome (B3) | 1.3 1.1 0.9 1.0 1.8 2.1 2.4 3.1 3.5 4.3 4.7 5.3 5.5 5.9 |
+| Big in Japan, chrome (A5) | 2.4 2.0 1.6 1.3 1.0 0.3 0.6 1.0 1.2 1.6 2.2 2.5 3.0 3.3 |
+| Forever Young, chrome (A6, follows A5) | 4.4 4.8 5.3 5.5 5.9 6.4 6.7 7.1 7.4 8.0 8.5 8.9 9.2 9.8 10.3 10.6 … |
+
+Steady only on Shallow's metal take. Elsewhere it grows in a straight line, and on A5 it falls to nothing
+and comes back: the shape of |sin|, a beat.
+
+**What beats.** These tapes were recorded and played on the same deck. The capstan's wobble is frozen into
+the tape at recording and added again at playback; if a turn of the capstan moved exactly the same length
+of tape both times the two would keep their relation along the whole tape (and cancel or double for
+good). It does not quite: the tape plays 100 to 200 ppm faster than it was recorded, and with a
+speed-locked motor that is the length of tape per turn. So the two lines sit that far apart in frequency
+and drift through each other once in 11 to 23 minutes.
+
+`beatfit.py` (new) takes the line's complex amplitude over the song from the delay curve and fits two
+steady sines. For the capstan the distance between them is not fitted: it is the speed difference the
+alignment measured.
+
+| tape | speed difference | two lines, µs RMS each | they explain | one steady line explains | beat |
+|---|---|---|---|---|---|
+| MB2 | −195 ppm | 8.8 + 5.2 | 99.6% | 99.4% | 681 s |
+| MB3 | −164 ppm | 7.4 + 6.6 | 96.9% | 86.0% | 809 s |
+| B3 | −127 ppm | 6.6 + 5.9 | 96.8% | 65.0% | 1046 s |
+| A6 | −118 ppm | 6.9 + 6.2 | 99.0% | 89.8% | 1121 s |
+| A5 | −97 ppm | 6.3 + 6.2 | 73.4% (the line is 2.2 µs there, near its null) | 45.3% | 1369 s |
+
+- **With nothing free but two amplitudes and two phases, the pair explains 97 to 99.6% of the line on every
+  tape, and the amplitudes are the same everywhere: about 6 to 7 µs RMS per pass.** (On MB2 the song sits on
+  the beat's maximum, where only the sum, 14 µs, is determined.) That is the deck's capstan: one number,
+  on chrome and on metal, on both sides.
+- So "Shallow's stretch of the metal tape flutters 1.7 times as much as I Miss You's" (yesterday) and "wobble
+  depth belongs to a stretch of tape" (2026-11-16) were, for the capstan line, the beat seen at two places.
+  What differs from song to song is where in the beat the song starts.
+- The pinch roller's 1.67 Hz line beats too, faster (every 2 to 4.5 minutes: its two lines are 0.2 to 0.5%
+  apart, a rubber roller does not keep its radius) and with unequal halves: 11.5 + 20 µs on the chrome's
+  side A (the same on A5 and on A6), 10 + 12 µs on its side B, 3 to 5 + 11 to 14 µs on the metal. Its swelling
+  from 9 to 19 µs along Shallow, noted this morning, is this.
+- An emulation with steady lines, measured the same way, is told apart at once: one line explains 98.7 to
+  98.9% and a second adds nothing.
+
+**Model.** A line in `transport.lines` may carry a `phase` (radians at the first sample; without one it
+is drawn from the seed, as before). A rotating part is then listed twice, a hair apart, with phases: the
+beat stands through the song where it stood on the tape. No new machinery in the engine beyond reading the
+phase. `calibrate.py` leaves lines with a phase alone (near a null a few degrees decide how much line is
+left; an amplitude correction from that would be wrong).
+
+### The four other profiles, refitted (`beatfit.py --apply`, `distfit.py --fit`, `calibrate.py --engine`)
+Each on its own song, on the new alignment; checked on a draw the fit never saw (seed 3).
+
+| profile (song) | capstan pair | pinch roller pair | transport besides | fast jitter, common + own | flicker 1 / 2 / 4 / 8 / 13 kHz | gain noise L / R | flat cubic L / R |
+|---|---|---|---|---|---|---|---|
+| `wmd6c_metalxr_v2` (MB3) | 7.0 + 6.9 µs | 10.7 + 4.8 µs | 196 µs | 3.08 + 1.36 µs | 0.2 / 1.5 / 2.4 / 4.4 / 7.2% | 1.61 / 1.02% | −33.8 / −37.9 dB |
+| `wmd6c_xlii_sideB` (B3) | 6.6 + 5.9 | 12.0 + 10.1 | 67 | 2.98 + 0.79 | 0.0 / 1.0 / 2.1 / 4.5 / 8.6 | 0.01 / 0.55 | none |
+| `wmd6c_xlii_sideA` (A6) | 7.5 + 5.8 | 20.7 + 11.5 | 127 | 3.57 + 0.61 | 0.0 / 0.7 / 2.1 / 2.9 / 8.4 | 0.53 / 0.01 | none |
+| `wmd6c_xlii_sideA_A5wobble` (A5) | 6.3 + 6.2 | 20.1 + 11.3 | 155 | 3.34 + 0.63 | side A's | side A's | none |
+
+**The emulation's lines now go through the song as the tape's do.** Capstan line in 15 s stretches, µs RMS:
+- MB3: tape 4.1 4.6 5.1 5.8 6.6 7.3 7.8 8.3 9.4 10.1 10.7 10.9 11.3; emulation 4.3 4.6 5.6 6.3 6.6 7.0 7.4 8.7 9.3 9.5
+  10.3 10.6 11.3.
+- B3: tape 1.3 1.1 0.9 1.0 1.8 2.1 2.4 3.1 3.5 4.3 4.7 5.3 5.5 5.9; emulation 1.5 1.2 0.8 0.8 1.4 2.2 2.8 3.5 3.4 4.2 4.7
+  5.1 5.8 6.2.
+- A5 (through the beat's null): tape 2.4 2.0 1.6 1.3 1.0 0.3 0.6 1.0 1.2 1.6 2.2 2.5 3.0 3.3; emulation 2.4 1.9 1.4 1.4
+  0.8 0.7 1.0 0.9 1.1 1.7 2.0 2.3 2.9 3.4.
+- Pinch roller, B3: tape 4.6 8.5 9.6 13.2 19.7 19.6 23.5 21.7 21.3 20.0 17.3 11.5 6.0 5.6; emulation 3.6 5.5 10.2 14.9
+  17.3 19.6 22.4 22.2 20.7 18.4 15.8 11.4 7.0 3.4.
+
+**Residual in the loud half per octave (1 / 2 / 4 / 8 / 13 kHz, mean of L and R), tape against emulation:**
+MB3 −27.8 / −23.0 / −16.9 / −11.5 / −6.1 against −28.0 / −23.1 / −16.8 / −11.4 / −6.1; B3 −29.1 / −24.5 / −17.2 / −11.5 / −6.5
+against −29.4 / −24.8 / −17.4 / −11.6 / −6.7; A6 −28.6 / −23.1 / −17.7 / −10.8 / −6.3 against −28.4 / −23.0 / −17.5 / −10.7 /
+−6.3; A5 (side A's profile with only the wobble its own) −29.6 / −23.8 / −17.4 / −11.9 / −6.7 against −29.0 / −23.6 /
+−17.3 / −11.9 / −6.6. Whole timing from 3 to 40 Hz within 8% of the tape in every band of rate, on all four.
+
+**By loudness class, emulation minus tape, 250 / 500 / 1k / 2k / 4k / 8k / 13k Hz:**
+
+| | quietest quarter | loudest quarter | loudest tenth |
+|---|---|---|---|
+| MB3 | +1.6 +0.4 −0.7 −0.9 −0.7 −0.9 −0.9 | +0.5 +0.2 0.0 +0.1 +0.4 +0.6 +0.4 | −0.1 −0.1 −0.5 −0.2 +0.1 +0.3 +0.2 |
+| B3 | +0.3 −0.7 +0.1 +0.3 +0.2 +1.2 +0.7 | +1.6 +0.6 −0.3 −0.2 −0.2 −0.2 −0.3 | +2.1 +1.0 −0.2 −0.2 −0.3 −0.4 −0.6 |
+| A6 | +1.5 +0.5 −0.1 −0.5 −0.3 −0.2 −0.1 | +2.1 +1.0 +0.2 +0.2 +0.3 +0.1 −0.2 | +2.9 +1.5 +0.5 +0.4 +0.5 +0.2 −0.2 |
+| A5 | −2.2 −1.6 −1.5 0.0 −0.2 −0.3 +0.1 | +1.6 +1.3 +0.5 +0.2 +0.1 0.0 +0.1 | +1.8 +1.5 +0.5 +0.4 +0.2 +0.3 +0.3 |
+
+From 2 kHz up within 1 dB everywhere, mostly within 0.5. At 250 and 500 Hz the chrome emulations are 1 to
+3 dB rougher than the tape in the loud passages; see the distortion below.
+
+**Distortion.**
+- Metal, `wmd6c_metalxr_v2` on I Miss You: Shallow's values read 2.4 and 1.9 dB low here. This profile's
+  record gain is 0.8 / 0.5 dB below Shallow's (the same capture, the next song: the stretch plays that much
+  quieter, or was recorded that much lower; the profile has one gain for both), and a cubic's products fall
+  2 dB per dB. Fitted on its own song: L −33.8, R −37.9 dB, and the emulation reads −40.7 / −45.7 dB against
+  the tape's −40.7 / −45.8.
+- **Chrome: the flat cubic of −43 dB (both channels, from the old method) was 5 to 12 dB too much.** Third
+  order in the loudest quarter, tape: B3 −45.7 / −51.9 dB, A6 −44.9 / −50.9, A5 −48.1 / −54.6 (left / right; the left
+  has 6 dB more, as on the metal). The emulations read −40.4 / −42.8, −37.6 / −39.1, −40.4 / −41.9.
+- The fit took the flat cubic down without finding a floor: with none at all the emulations still read
+  −43.3 / −45.9 (B3), −40.6 / −42.3 (A6), −43.8 / −45.6 (A5). **That is the treble-saturation stage alone: 2 to 4 dB
+  more third-order products than the tape has on the left, 6 to 9 dB more on the right.** The stage was
+  fitted to the treble's loss in loud bright moments (2026-11-16) and gives that loss correctly; as a cubic
+  on the pre-emphasised waveform it makes more products than a tape that loses the same treble. A
+  nonlinearity that follows the treble's envelope instead of its waveform would give the loss without
+  most of the products. Not built. The chrome profiles now have no flat cubic and the stage as it was;
+  their excess at 250 and 500 Hz in loud passages fell from 3–5 dB to 1–3 dB.
+- With the over-strong cubic gone the chrome profiles find a little gain noise (0.5% on one channel
+  each); before, the cubic's intermodulation had supplied that modulation.
+
+**Also:** `verify_engine.py`'s check 4 reads −17 to −19 dB at 20–60 Hz for these four (Shallow's profile: −25):
+their response tables hold more below 60 Hz than the engine's filter realises. Against the tapes the
+engine's own response is within 0.2 dB from 100 Hz up and within 0.6 dB at 30–50 Hz.
