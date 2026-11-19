@@ -33,9 +33,10 @@ CAL = OUT / "calib"
 ALPHA = 0.8  # damping of each correction (in log/dB terms)
 JITTER_TOP_HZ = 4000.0  # fast timing is assumed flat from the last measured band up to here
 AM_KAPPA = 0.7  # demodulated AM reads ~0.7x the injected AM power (synthetic test, FINDINGS)
+PM_KAPPA = 0.55  # and the demodulated timing about 0.55x the injected jitter power (48-96 Hz, where next to all of it is jitter)
 TIMING_OCTS = (2000, 4000, 8000)  # octaves where the timing estimate is cleanest
 FLICKER_RATES = slice(0, 7)  # rate bands 3..384 Hz carry the flicker depth estimate
-FINE_FROM_HZ, FINE_TO_HZ = 6.0, 48.0  # the transport is corrected in fine steps from the timing left after the warp
+FINE_FROM_HZ, FINE_TO_HZ = 3.0, 50.0  # the transport is corrected in fine steps from the whole timing (to where its table fades out)
 # Gain noise: a fast wobble of each channel's level as a whole (the same depth at every frequency),
 # with a depth per channel. Its evidence is the AM at 96..384 Hz in the 1 and 2 kHz octaves, where the
 # timing's own contribution to the AM is smallest and the flicker has little left.
@@ -60,11 +61,9 @@ def mean_pm(sig, octs=TIMING_OCTS):
 
 
 def fine_timing(sig):
-    """The fine spectrum of the timing left after the warp (signature's pm_psd, mean of its octaves):
-    frequencies, the spectrum smoothed over a quarter octave, and the spectrum as measured."""
-    octs = sorted(sig["pm_psd"])
-    f = sig["pm_psd"][octs[0]]["f"]
-    P = np.mean([sig["pm_psd"][o]["psd"] for o in octs], axis=0)
+    """The fine spectrum of the whole timing (signature's timing_psd: what the warp took out plus what
+    it left): frequencies, the spectrum smoothed over a quarter octave, and the spectrum as measured."""
+    f, P = np.asarray(sig["timing_psd"]["f"]), np.asarray(sig["timing_psd"]["psd"])
     c = np.concatenate([[0.0], np.cumsum(P)])
     lo = np.searchsorted(f, f * 2 ** (-1 / 8), side="left")
     hi = np.maximum(np.searchsorted(f, f * 2 ** (1 / 8), side="right"), lo + 1)
@@ -116,6 +115,17 @@ def merge_close(lines: list[dict], within_hz: float = 0.12) -> list[dict]:
         else:
             out.append(dict(line))
     return out
+
+
+def table_power(freqs, psd, lo, hi) -> float:
+    """The power a table (a spectrum on a log-frequency grid, as the emulator reads it: straight lines
+    between its points in log-log, nothing outside) holds between lo and hi."""
+    freqs, psd = np.asarray(freqs, float), np.maximum(np.asarray(psd, float), 1e-30)
+    a, b = max(lo, freqs[0]), min(hi, freqs[-1])
+    if b <= a:
+        return 0.0
+    g = np.geomspace(a, b, 200)
+    return float(np.trapezoid(np.exp(np.interp(np.log(g), np.log(freqs), np.log(psd))), g))
 
 
 def rate_share(freqs, psd, lo, hi):
@@ -206,6 +216,14 @@ def split_flicker(prof):
     fl["depth_indep"] = (d * np.sqrt(1 - rho)).tolist()
 
 
+# The bottom of the response table is left as it was first measured: nothing below 25 Hz is corrected,
+# everything from 40 Hz up is. Down there the songs hold next to nothing, the tape's reading is mostly
+# noise, and the engine's filter realises little of what the table says, so a correction changes
+# nothing in the next round and the same step is taken again: five rounds piled 2.5 dB onto the 20 Hz
+# point of a fitted profile (verify_engine.py, check 4: 4 dB worse at 20-60 Hz).
+BASS_TAPER = np.clip(np.log(np.array(EQ_GRID) / 25.0) / np.log(40.0 / 25.0), 0.0, 1.0)
+
+
 def smooth_response_step(d: np.ndarray) -> np.ndarray:
     """A correction to the response table, smoothed over 5/24 octave, and below 200 Hz over half an
     octave. The engine's response filter is nearly causal and cannot follow detail finer than that in
@@ -229,7 +247,7 @@ def update(prof: dict, tape: dict, emu: dict) -> list[str]:
         d_eq = np.array(tape["eq"][ch]) - np.array(emu["eq"][ch])
         d_ph = np.array(tape["phase"][ch]) - np.array(emu["phase"][ch])
         d_ph = (d_ph + np.pi) % (2 * np.pi) - np.pi
-        d_eq, d_ph = smooth_response_step(d_eq), smooth_response_step(d_ph)
+        d_eq, d_ph = smooth_response_step(d_eq) * BASS_TAPER, smooth_response_step(d_ph) * BASS_TAPER
         prof["eq"][ch] = (np.array(prof["eq"][ch]) + a * d_eq).tolist()
         prof["eq"][f"phase_{ch}"] = (np.array(prof["eq"][f"phase_{ch}"]) + a * d_ph).tolist()
         dg = tape["gain_db"][ch] - emu["gain_db"][ch]
@@ -238,44 +256,46 @@ def update(prof: dict, tape: dict, emu: dict) -> list[str]:
         notes.append(f"{ch}: gain {dg:+.2f} dB, eq max |d| {np.max(np.abs(d_eq)):.2f} dB, "
                      f"phase max |d| {np.degrees(np.max(np.abs(d_ph))):.1f} deg")
 
-    # slow transport. Three kinds of evidence, by how well the delay tracker follows the wobble:
-    #   below 3 Hz it follows it, and the tracked speed deviation says how much there is;
-    #   at 3-6 Hz it follows part of it: tracked and left-over timing are added;
-    #   from 6 Hz up it cannot (85 ms windows, 150 ms smoothing; its reading there is mostly its own
-    #   noise, and matching that made the first metal fit diverge), so the timing left after the warp
-    #   decides, in fine steps: the capstan's 7.5 Hz line, its harmonics and the motor's lines each
-    #   get their own correction. (Octave-wide bands, as before, traded a line that was too strong
-    #   against too little beside it.) The timing is judged on the 1-4 kHz octaves.
+    # slow transport. Two kinds of evidence, both from the timing as a whole (the alignment's delay
+    # curve, which holds the slow wobble and the flutter lines, plus the little it leaves):
+    #   below 3 Hz the speed deviation of the delay curve, in bands;
+    #   from 3 Hz up signature's timing_psd in fine steps: the capstan's 7.5 Hz line, its harmonics and
+    #   the motor's lines each get their own correction. (Octave-wide bands traded a line that was too
+    #   strong against too little beside it. And until the alignment got its second stage this rule
+    #   looked at the timing left after the warp, of which the first tracker had taken a share that
+    #   differed between tape and emulation: the metal profile's 7.5 Hz line came out 15% low.)
     tr = prof["transport"]
     f = np.array(tr["freqs"])
     low = [k for k, (lo, hi) in enumerate(DEV_RATES) if hi <= 3]
     r_low = (np.array(tape["dev"]) / np.array(emu["dev"]))[low]
-    k36 = DEV_RATES.index((3, 6))
-    tracked = lambda sig: sig["dev"][k36] / 1e4 / (2 * np.pi * np.sqrt(18.0)) ** 2 * 1e12  # %^2 -> us^2 at 4.2 Hz
     ff, Pt, raw_t = fine_timing(tape)
     _, Pe, raw_e = fine_timing(emu)
-    band = (ff >= 3) & (ff < 6)
-    df = ff[1] - ff[0]
-    r36 = (tracked(tape) + raw_t[band].sum() * df) / (tracked(emu) + raw_e[band].sum() * df)
     fine = (ff >= FINE_FROM_HZ) & (ff <= FINE_TO_HZ)
-    pts_f = np.concatenate([centres(DEV_RATES)[low], [np.sqrt(18.0)], ff[fine]])
-    pts_r = np.clip(np.concatenate([r_low, [r36], Pt[fine] / Pe[fine]]), 0.5, 2.0) ** a
+    pts_f = np.concatenate([centres(DEV_RATES)[low], ff[fine]])
+    pts_r = np.clip(np.concatenate([r_low, Pt[fine] / Pe[fine]]), 0.5, 2.0) ** a
     corr = np.exp(np.interp(np.log(np.maximum(f, 0.1)), np.log(pts_f), np.log(pts_r)))
     tr["psd_us2_per_hz"] = (np.array(tr["psd_us2_per_hz"]) * corr).tolist()
     for line in tr.get("lines", []):  # the steady lines follow the same correction, at their own frequency
         line["us"] *= float(np.exp(0.5 * np.interp(np.log(line["hz"]), np.log(pts_f), np.log(pts_r))))
-    n_low = len(low) + 1
+    n_low = len(low)
     notes.append("transport x " + " ".join(f"{v:.2f}" for v in pts_r[:n_low])
                  + f" | {FINE_FROM_HZ:g}-{FINE_TO_HZ:g} Hz in fine steps x {pts_r[n_low:].min():.2f}..{pts_r[n_low:].max():.2f}"
                  + f" (7.5 Hz line x {pts_r[n_low:][np.argmin(np.abs(ff[fine] - 7.5))]:.2f})")
 
-    # fast jitter: total per rate band, and the common share from the L/R coherence at 8 kHz
+    # fast jitter: total per rate band, and the common share from the L/R coherence at 8 kHz.
+    # The timing read at a rate is the jitter put in (times PM_KAPPA) plus what else lands there: noise
+    # and distortion, which read as timing and as AM alike. With the slow flutter out of the way
+    # (align.py's second stage) that share is half and more of the reading above 200 Hz, so the table
+    # is corrected by the difference between tape and emulation as a share of the jitter's own part,
+    # not by the ratio of the readings (which took ten rounds to say the same).
     j = prof["jitter"]
     jf = np.array(j["freqs"])
     c = centres(RATES)
-    r = mean_pm(tape) / mean_pm(emu)
-    ok = ~np.isnan(r) & (c >= 48)
-    rr = np.clip(r[ok], 0.25, 4) ** a
+    inj = np.array([table_power(jf, j["psd_total_us2_per_hz"], lo, hi) for lo, hi in RATES])
+    pm_t, pm_e = mean_pm(tape), mean_pm(emu)
+    r = 1.0 + (pm_t - pm_e) / np.maximum(PM_KAPPA * inj, 1e-12)
+    ok = ~np.isnan(r) & (c >= 48) & (inj > 0)
+    rr = np.clip(r[ok], 0.5, 2.0) ** a
     corr = np.exp(np.interp(np.log(jf), np.log(c[ok]), np.log(rr)))
     j["psd_total_us2_per_hz"] = (np.array(j["psd_total_us2_per_hz"]) * corr).tolist()
     dcoh = np.nan_to_num(tape["pm_coh"][8000] - emu["pm_coh"][8000])

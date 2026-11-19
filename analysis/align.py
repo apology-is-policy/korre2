@@ -5,6 +5,13 @@
      tape's timeline drifts and wobbles against the source: speed error, wow, flutter
   3. warp the tape onto the source timeline (windowed-sinc interpolation), so the two
      line up sample for sample at the source's rate
+  4. a second, finer stage: the timing still left in the warped tape is measured in 11 ms windows by
+     least squares against the source's prediction, smoothed, added to the delay curve, and the tape
+     warped again; twice. The first tracker's windows are 85 ms long and it throws out what looks
+     like a mis-pick, so it follows the deck's 7.5 Hz flutter only in part (30-45%), and not by the
+     same share on a real tape as on its emulation: comparisons of what the warp left were off by
+     that difference. The second stage is linear, so after it the delay curve holds the timing below
+     about 19 Hz whatever the first one did, and what is left holds the rest.
 
     python align.py B3
 
@@ -26,6 +33,17 @@ PAD = 8.0  # seconds of extra tape read on each side of the track boundaries
 # phase by 90-300 degrees (static, the same in every song), so a full-band window match fails
 # on bass-heavy songs even when the alignment is right.
 TRACK_BAND = (200.0, 8000.0)
+# The second stage: windows of FINE_W samples in FINE_BAND (where the music's body is and a few tens of
+# microseconds are still a small phase), smoothed over neighbouring windows with a Gaussian of
+# FINE_SIGMA window lengths, FINE_PASSES times. A pass takes the share G(f) = exp(-(2 pi f sigma)^2 / 2) of what
+# is left, so after n passes the curve holds 1 - (1 - G)^n of the timing: with two passes at 48 kHz 99% at
+# 7.5 Hz, 84% at 15 Hz, half at 23 Hz, 5% at 40 Hz.
+FINE_W = 512
+FINE_HOP = FINE_W // 2  # the windows overlap by half: readings 5 ms apart, so timing up to 50 Hz is not folded back
+FINE_BAND = (700.0, 2800.0)
+FINE_SIGMA = 1.0
+FINE_PASSES = 2
+FINE_LIMIT_US = 150.0  # a window's reading beyond this is noise (it carries next to no weight anyway)
 OUT = Path(__file__).resolve().parent / "out"
 
 
@@ -165,6 +183,58 @@ def warp(x: np.ndarray, pos: np.ndarray, taps: int = 48, beta: float = 9.0,
     return out
 
 
+def window_delay(predictions, captured, sr: int):
+    """How late the warped tape still is, per window of FINE_W samples, the windows FINE_HOP apart.
+    `predictions`: the source through the chain's linear response, per channel; `captured`: the warped
+    tape, per channel. Each channel is fitted per window with a gain and a time shift against its
+    prediction, in FINE_BAND; the channels are averaged by how much each window can say (the power of
+    the prediction's slope that its level does not explain). Returns (centres in samples, delay in
+    seconds, weight): the weight is next to nothing where there is no sound, and the delay there
+    means nothing."""
+    sos = signal.butter(4, FINE_BAND, "bandpass", fs=sr, output="sos")
+    per = FINE_W // FINE_HOP
+    blocks = len(predictions[0]) // FINE_HOP
+    n = blocks - per + 1
+    num, den = np.zeros(n), np.zeros(n)
+
+    def sums(a, b):  # the sum of a*b over each window, from the sums over its FINE_HOP blocks
+        part = np.concatenate([[0.0], np.cumsum((a[: blocks * FINE_HOP] * b[: blocks * FINE_HOP]).reshape(blocks, FINE_HOP).sum(1))])
+        return part[per:] - part[:-per]
+
+    for yhat, y in zip(predictions, captured):
+        hb = signal.sosfiltfilt(sos, yhat)
+        r = signal.sosfiltfilt(sos, y) - hb
+        dy = np.gradient(hb) * sr
+        a11, a22, a12, b1, b2 = sums(hb, hb), sums(dy, dy), sums(hb, dy), sums(hb, r), sums(dy, r)
+        det = a11 * a22 - a12 ** 2
+        ok = det > 1e-12 * (a11 * a22 + 1e-300)
+        shift = np.where(ok, (a11 * b2 - a12 * b1) / np.where(ok, det, 1.0), 0.0)  # y(t) = prediction(t + shift)
+        late = np.clip(-shift, -FINE_LIMIT_US * 1e-6, FINE_LIMIT_US * 1e-6)
+        weight = np.where(ok, det / (a11 + 1e-300), 0.0)
+        num += weight * late
+        den += weight
+    return np.arange(n) * FINE_HOP + FINE_W / 2, num / np.maximum(den, 1e-300), den
+
+
+def fine_delay(src: np.ndarray, aligned: np.ndarray, sr: int):
+    """The delay still left in the warped tape, smoothed over neighbouring windows: (centres in source
+    samples, delay in samples, share of the windows that carry sound). Where there is no sound for
+    longer than the smoothing reaches, the curve is carried across."""
+    from measure import apply_H, cross_spectra
+    predictions = []
+    for c in range(src.shape[1]):
+        f, Pxx, _, Pxy = cross_spectra(src[:, c], aligned[:, c], sr)
+        predictions.append(apply_H(src[:, c], f, Pxy / Pxx))
+    centres, late, weight = window_delay(predictions, [aligned[:, c] for c in range(src.shape[1])], sr)
+    sigma = FINE_SIGMA * FINE_W / FINE_HOP  # in readings
+    half = int(np.ceil(4 * sigma))
+    k = np.exp(-0.5 * (np.arange(-half, half + 1) / sigma) ** 2)
+    sn, sd = np.convolve(weight * late, k, "same"), np.convolve(weight, k, "same")
+    heard = sd > 1e-4 * np.median(sd[sd > 0])
+    smooth = np.interp(centres, centres[heard], sn[heard] / sd[heard])
+    return centres, smooth * sr, float(heard.mean())
+
+
 def wow_flutter(c, d, sr, hop):
     """Speed deviation (%) from the delay curve, after removing the constant speed error."""
     t = c / sr
@@ -222,6 +292,21 @@ def main():
           f"largest step between neighbours {steps.max():.0f} us"
           + ("  <- WARNING: the tracker lost the signal somewhere" if holes.max() > 0.5 or steps.max() > 100 else ""))
 
+    # warp the tape onto the source timeline, then the second stage: measure what is left, add it to
+    # the curve, warp again
+    n = np.arange(len(src))
+    dly = np.interp(n, c, d)  # constant extrapolation at the ends
+    aligned = warp(tape, n + dly)
+    for k in range(FINE_PASSES):
+        fc, left, heard = fine_delay(src, aligned, sr)
+        print(f"fine stage, pass {k + 1}: {np.std(left) / sr * 1e6:.1f} us RMS of timing still left, added to the curve "
+              f"({heard * 100:.0f}% of the {FINE_W / sr * 1e3:.0f} ms windows carry sound)")
+        dly = dly + np.interp(n, fc, left)
+        aligned = warp(tape, n + dly)
+    c = fc  # the curve as it was used, at the fine stage's readings
+    d = np.interp(c, n, dly)
+    hop = FINE_HOP
+
     speed_err, resid_us, tu, dev, f, P = wow_flutter(c, d, sr, hop)
     print(f"\nspeed: tape timeline {'longer' if speed_err > 0 else 'shorter'} than source by "
           f"{abs(speed_err):.3f}% (= playback {'slower' if speed_err > 0 else 'faster'} than recording)")
@@ -237,10 +322,6 @@ def main():
     top = sorted(pk, key=lambda k: -P[m][k])[:6]
     print("  strongest periodicities: " + ", ".join(f"{f[m][k]:.2f} Hz" for k in sorted(top, key=lambda k: f[m][k])))
 
-    # warp tape onto the source timeline
-    n = np.arange(len(src))
-    dly = np.interp(n, c, d)  # constant extrapolation at the ends
-    aligned = warp(tape, n + dly)
     OUT.mkdir(exist_ok=True)
     np.savez(OUT / f"{t.id}_aligned.npz", sr=sr, src=src.astype(np.float32), tape=aligned.astype(np.float32),
              centers=c, delay=d, dev_t=tu, dev=dev, polarity=pol)

@@ -21,6 +21,7 @@ from scipy import signal
 
 from common import data_file, db, decode
 from fitprofile import eq_magnitude_phase, recorded_noise_psd
+from align import FINE_HOP, window_delay
 from investigate import band, load
 from measure import OUT, apply_H, cross_spectra
 from tracks import SIDE_FILES, track
@@ -54,7 +55,7 @@ def signature(tid: str, cache: bool = True) -> dict:
     aligned = OUT / f"{tid}_aligned.npz"
     if cache and path.exists() and path.stat().st_mtime > aligned.stat().st_mtime:
         cached = pickle.loads(path.read_bytes())
-        if cached.get("pm_psd"):  # absent in signatures cached before the fine timing spectrum existed
+        if "f" in cached.get("timing_psd", {}):  # absent in signatures cached before the whole timing spectrum existed
             return cached
     t = track(tid)
     sr, src, tape, z, trim = load(t.id)
@@ -78,6 +79,19 @@ def signature(tid: str, cache: bool = True) -> dict:
         yhat = apply_H(x, f, Pxy / Pxx)
         yh.append(yhat)
         rr.append(y - yhat)
+
+    # The whole timing in fine steps: what the alignment's warp took out (its delay curve: the slow
+    # wobble and the flutter lines up to about 19 Hz) plus what it left, per 11 ms window, added in
+    # step. Linear and unweighted: a steady line of 12 us reads 12 us wherever the music is dense or
+    # sparse, and the reading does not depend on where the alignment's split falls.
+    centres, late, weight = window_delay(yh, [tape[:, c] for c in range(2)], sr)
+    late[weight < 0.05 * np.median(weight)] = 0.0  # no sound, no reading
+    tracked = np.interp(trim + centres, z["centers"], z["delay"]) / sr
+    whole_us = (tracked + late) * 1e6
+    whole_us -= np.polyval(np.polyfit(centres, whole_us, 1), centres)  # the offset and the speed error
+    fs_w = sr / FINE_HOP
+    ft, Pt = signal.welch(whole_us, fs_w, nperseg=int(round(FINE_SECONDS * fs_w)), detrend="linear")
+    sig["timing_psd"] = dict(f=ft, psd=Pt)  # us^2/Hz, the timing both channels share
     del src, tape
 
     # per octave: demodulated AM and timing spectra, L/R coherence, residual level
@@ -117,7 +131,7 @@ def signature(tid: str, cache: bool = True) -> dict:
                 slow = signal.resample_poly(d.imag, 1, q)
                 ff, Pf = signal.welch(slow, sr / q, nperseg=int(FINE_SECONDS * sr / q))
                 fine.append(Pf / norm * k_us)
-            sig["pm_psd"][fc] = dict(f=ff, psd=np.mean(fine, axis=0))  # us^2/Hz, mean of L and R
+            sig["pm_psd"][fc] = dict(f=ff, psd=np.mean(fine, axis=0))  # us^2/Hz, mean of L and R: left after the warp
         cohs = {}
         for kind, fn in (("am", np.real), ("pm", np.imag)):
             fc_, C = signal.coherence(fn(dem[0][0]), fn(dem[1][0]), sr, nperseg=NPER)

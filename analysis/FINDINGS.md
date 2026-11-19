@@ -1119,3 +1119,173 @@ Until then the judged pair's profile keeps its old cubic; the fitted variant is
 - The tape's slow amplitude modulation at 4 kHz grows with level (4.6 → 6.2%); with the fitted cubic the
   emulation's stays flat (5.1 → 5.4%). So the cubic does not produce it; it needs its own mechanism.
 - Steady flutter lines for the other profiles.
+
+## 2026-11-19: the distortion's other half, a treble modulation that was not one, and an alignment that took part of the flutter
+The pass the owner approved, items 1 and 2. Both ended somewhere else than planned.
+
+### 1. The tape does turn its gain down with level, as its distortion says (`gainbylevel.py`, new)
+The question left open yesterday. Gain of the capture on its linear prediction in 11 ms windows, against
+the source's power in the same window; "fast" is what is left of both after their 2 s running means are
+taken away (Shallow grows louder towards its end, so the plain figures cannot tell compression from a drift
+of the tape's sensitivity along the reel). Slope in % of gain per unit of power (the song's mean = 1):
+
+| | tape | emulation, cubic −43 dB | emulation, cubic fitted (L −36.1, R −40.0) |
+|---|---|---|---|
+| left, whole band, fast | −0.58 | −0.25 | −0.58 |
+| left, 177–707 Hz, fast | −0.69 | −0.34 | −0.74 |
+| left, 707–2828 Hz, fast | −0.81 | −0.36 | −0.82 |
+| right, whole band, fast | −0.30 | −0.19 | −0.28 |
+| right, 177–707 Hz, fast | −0.36 | −0.27 | −0.38 |
+| right, 707–2828 Hz, fast | −0.43 | −0.30 | −0.44 |
+
+By class of fast level (quietest quarter of the windows … loudest tenth, left, whole band): tape +0.68 +0.27
++0.07 −0.46 −0.72%; fitted emulation +0.72 +0.25 +0.09 −0.48 −0.74%. **The compression is there, of the
+size a cubic with the tape's third-order products must have, on both channels.** A plain cubic per channel
+is the right model, and the fitted values are adopted in `wmd6c_metalxr_v2_MB2`.
+
+What made the fitted emulation 1 dB rougher at 250 Hz in the quiet passages, then:
+- The plain (not "fast") figures differ: the tape's gain in the quietest quarter sits 1.4% above the mean,
+  the fitted emulation's 2.1%. Seven hundredths of a dB of level between the song's quiet and loud parts, which
+  one linear fit for the whole song counts as residual in the quiet ones. A drift of the tape's
+  sensitivity along the reel of that size is nothing unusual, and it is not roughness.
+  `residbylevel.py --slow-gain 2` lets the gain follow its 2 s running mean first; the excess in the quietest
+  quarter falls from 1.0 to 0.6 dB.
+- The rest was there before the cubic was touched (0.5–0.9 dB with the old cubic too, in the quiet three
+  quarters): the gain noise had been fitted while the cubic was 7 dB too weak on the left, and had taken
+  up what the cubic's intermodulation should have supplied. Refitted with the right cubic it falls (below).
+
+### 2. No treble modulation that grows with level. What grew was the flutter's trace
+`dynamics.py` reads "AM" as the part of the residual in phase with the predicted signal. A timing wobble
+φ(t) = ωτ(t) turns the signal's phase and so also shortens its in-phase part, by cos φ − 1 ≈ −φ²/2. Split by
+rate, at 4 kHz on the left, level classes from quiet to loud:
+
+| rates | in-phase residual, % | φ²/2, % | envelope ratio \|Y\|/\|Ŷ\| − 1, % |
+|---|---|---|---|
+| 4–12 Hz, tape | 2.35 2.63 2.76 3.04 2.79 | 2.37 2.58 2.78 3.07 2.68 | 1.09 0.90 0.83 0.96 1.09 |
+| 12–30 Hz, tape | 2.25 2.89 2.87 3.06 2.77 | 2.10 2.82 2.75 2.92 2.64 | 0.89 0.95 1.06 1.19 1.29 |
+| 12–30 Hz, emulation | 2.22 2.03 2.30 2.20 2.15 | 2.13 1.93 2.20 2.05 1.93 | 0.73 0.78 0.92 1.02 1.18 |
+| 30–100 Hz, tape | 2.15 2.70 2.78 3.16 3.18 | 1.82 2.29 2.23 2.53 2.32 | 1.34 1.58 1.86 2.08 2.49 |
+| 30–100 Hz, emulation | 2.10 2.23 2.60 2.80 2.73 | 1.92 1.87 2.13 2.12 1.87 | 1.09 1.36 1.66 1.92 2.14 |
+
+- From 4 to 100 Hz the "AM" **is** φ²/2, on the tape and on the emulation: the flutter read a second time.
+- The real amplitude modulation (the envelope ratio, blind to timing in second order) agrees between tape
+  and emulation within 10–20% in every rate band and level class, at 4 and at 8 kHz, and grows with level in
+  both: the cubic's intermodulation, which the fitted cubic gets right.
+- So the tape's larger φ²/2 in the louder classes said: more flutter there than in the emulation. Shallow's
+  loud passages are its second half. That led to the next finding.
+
+### 3. The alignment's tracker took a third of the capstan's flutter, and not the same third from tape and emulation
+`align.py` followed the delay with 85 ms windows, threw out what looked like a mis-pick (more than a
+sample off a 9-point median) and smoothed over 7 points. The assumption written into the calibration was
+that from 6 Hz up it cannot follow, so "the timing left after the warp decides". It follows the 7.5 Hz line by
+30 to 45%, more where the music is sparse, and its share of a line shrinks as the line grows (the
+rejection rule sits at the size of this deck's flutter). On Shallow, what the warp took and what it left,
+7.5 Hz line, µs RMS: tape 4.65 + 7.21, emulation 3.7 + 6.5–6.8. The calibration matched the 6.8 to the 7.2
+and was content; the whole was 13% short. Everything read from "what the warp left" carried this:
+the residual per octave (most of it at 1–2 kHz **was** this line), the φ²/2 trace above, the flicker at 8 and
+13 kHz (a few % of a reading swamped by that trace), and the line's apparent rise "from 2 µs in the quiet
+opening to 7–8 µs in the loud half", which was the tracker's share moving with the music.
+
+**A second, linear stage in `align.py`.** After the first warp the timing still left is measured in 11 ms
+windows (half overlapping) by least squares against the source's linear prediction, in 700 Hz–2.8 kHz,
+both channels weighted by what each window can say; smoothed with a Gaussian of one window length, added
+to the delay curve, and the tape warped again; twice. After two passes the curve holds 99% of the timing
+at 7.5 Hz, 84% at 15 Hz, half at 23 Hz, whatever the first tracker did, and what is left holds the rest.
+- Checked on an emulation whose line is known (engine's own transport signal: 11.9–12.0 µs RMS in the line's
+  band, steady): the new curve reads 11.2–12.3 µs in every 15 s stretch of the song, sparse or dense, 11.8
+  over the whole. The old reading of the same line ran from 3.1 to 8.5.
+- **The tape's capstan line on Shallow: 13.6 µs RMS, steady through the song, 12.5 to 14.1 in 15 s stretches** (13.6 13.9 13.8
+  13.9 13.9 14.0 14.1 13.9 13.8 13.3 12.8 12.5). The profile had 11.6. Steady, as model v0.6 has it; only too
+  weak.
+- The pinch roller's 1.67 Hz line is not steady on the tape: 9.4 to 18.7 µs over the song (beat-like; the
+  model's holds 14.3, which is the tape's mean). The capstan's second harmonic grows from 0.5 to 2 µs along
+  the song (model 1.7). Not modelled; at these rates and sizes far from audible as wow.
+- Wow and flutter of this deck and tape, unweighted RMS, as `align.py` now prints it: 0.017% below 4 Hz,
+  0.064–0.068% at 4–20 Hz (the old tracker's 0.020% was its share).
+- With the flutter out of what is left, every measure gets about 6 dB cleaner: residual in the loud blocks
+  −27.6 / −23.0 / −16.3 / −11.1 / −6.0 dB at 1 / 2 / 4 / 8 / 13 kHz (was −21.9 / −17.2 / −10.3 / −4.4 / +0.9). The AM
+  summed over 3–384 Hz at 8 kHz falls from 337 to 29 %², so 5% of flicker there is now half the reading and no
+  longer 3% of it.
+
+**`signature.py`**: `timing_psd`, the whole timing in 0.125 Hz steps (the delay curve plus what is left per
+11 ms window, linear, unweighted). **`calibrate.py`**: the transport is corrected from it in fine steps from
+3 to 50 Hz (below 3 Hz from the curve's speed deviation, as before); the jitter rule corrects by the
+difference between tape and emulation as a share of the jitter's own part of the reading (above 200 Hz
+half the timing read is noise and distortion; the ratio rule cut the jitter by 10% a round for a 6%
+excess it does not control).
+
+Two attempts on the way that did not work, for the record: adding the old tracker's curve to the left-over
+with the octave estimator's weights (the slow drift, a hundred times the lines, leaked into every rate
+through the weights; the fit ran to the clip), and matching the whole while still measuring everything
+else on the old warp (the emulation then left 20% more of the line than the tape, its φ²/2 trace swamped
+the 8 and 13 kHz AM and the flicker went to zero). The split has to be the same for tape and emulation,
+which only a linear tracker gives.
+
+**Every aligned file and signature made before today is on the old alignment.** Re-run `align.py` on a
+track and on its emulation before comparing them; figures in earlier entries of this file that involve
+"timing left", residuals per octave or AM at slow rates are on the old basis.
+
+### 4. The Shallow profile refitted on this basis, and a third listening set
+`calibrate.py --track MB2 --name wmd6c_metalxr_v2_MB2 --engine --iters 5` from yesterday's profile with the
+fitted cubic; converged in three rounds (the last two changed the line by less than 1%, the jitter by
+less than 4%).
+
+| | before | now |
+|---|---|---|
+| cubic, level of the third harmonic at the reference level | −43 dB both | L −36.1, R −40.0 dB |
+| capstan line, 7.53 Hz | 11.6 µs RMS | 13.2 µs |
+| pinch roller line, 1.67 Hz | 14.3 µs | 14.3 µs |
+| transport in all | 156 µs RMS + lines 19.3 µs | 142 µs + lines 20.2 µs |
+| fast jitter, common + per channel | 3.27 + 1.65 µs | 3.12 + 1.29 µs |
+| flicker at 1 / 2 / 4 / 8 / 13 kHz | 0.0 / 1.8 / 0.6 / 3.2 / 5.7% | 0.4 / 1.8 / 1.9 / 5.0 / 7.6% |
+| gain noise, left / right | 1.93 / 1.04% | 1.15 / 1.01% |
+
+The gain noise on the left fell by 40%: what the weak cubic had left for it to explain. The flicker at 4
+and 8 kHz rose: it had been a few percent of a reading that the flutter's trace filled.
+
+**Verified on the draw of the new set (`out/listening/MB2_v3/`, seed 5), tape against emulation, both on
+the new alignment:**
+- Residual in the loud half, L / R: 1 kHz −27.7 / −28.1 against −27.8 / −28.3 dB; 2 kHz −23.1 / −23.7 against
+  −23.2 / −23.7; 4 kHz −16.4 / −16.5 against −16.3 / −16.4; 8 kHz −11.2 / −10.7 against −11.2 / −10.7; 13 kHz
+  −6.2 / −5.5 against −6.2 / −5.4.
+- By loudness class (`residbylevel.py`), emulation minus tape:
+
+  | | 250 | 500 | 1k | 2k | 4k | 8k | 13k Hz |
+  |---|---|---|---|---|---|---|---|
+  | quietest quarter | +1.2 | +1.0 | +0.2 | −0.4 | −0.2 | −0.4 | −0.4 |
+  | second quarter | +1.2 | +0.7 | +0.2 | +0.3 | +0.2 | +0.3 | +0.3 |
+  | third quarter | +1.2 | +0.3 | −0.1 | +0.2 | +0.1 | −0.2 | −0.3 |
+  | loudest quarter | +0.2 | 0.0 | −0.2 | −0.2 | +0.1 | +0.1 | 0.0 |
+  | loudest tenth | −0.3 | −0.3 | −0.4 | −0.1 | +0.2 | +0.1 | −0.1 |
+
+  A second draw (seed 4) stays within 0.6 dB from 1 kHz up, and shows the same +1.1 to +1.3 dB at 250 Hz in
+  the quieter three quarters.
+- Third-order products in the loudest quarter (`distfit.py`): tape −38.6 / −43.6 dB, emulation −38.1 / −43.6.
+  Gain against level, fast part (`gainbylevel.py`): left −0.60 / −0.69 / −0.85 against −0.59 / −0.73 / −0.85 % per
+  unit (whole band, 177–707 Hz, 707–2828 Hz), right −0.31 / −0.37 / −0.47 against −0.29 / −0.40 / −0.44.
+- Capstan line in 15 s stretches: tape 12.5–14.1 µs, emulation 12.8–14.2. Whole timing in bands of rate from
+  3 to 40 Hz: within 4% of the tape in every band.
+- Response within 0.2 dB from 30 Hz to 14 kHz, phase within 3°. Level per octave within 0.1 dB to 8 kHz for
+  L+R and L−R (31.5 Hz: 0.2–0.3 dB); the top octave 0.3 dB below the tape's.
+- `verify_engine.py`: engine against the model as before (static response −25.0 dB at 20–60 Hz, −33.8 dB
+  overall).
+
+**Open: 250 Hz in the quieter passages.** The emulation leaves 1.2 dB more than the tape at 250 Hz in the
+quieter three quarters of the song (0.3–1.0 dB at 500 Hz) and the same as the tape in the loud quarter. In
+the quietest quarter this is level: the tape's gain there sits 1.5% above the song's mean, the emulation's
+2.2% (0.06 dB; with `--slow-gain 2` the difference there is 0.2 dB). In the second and third quarters about
+1 dB stays. It is not the gain noise reaching too low: the AM in the 250 and 500 Hz octaves at 3–80 Hz rates
+agrees with the tape within 10% on the left and reads 10–20% high on the right. Seen as a floor plus a part
+that grows with level as a cubic's products do, the tape's floor at 250 Hz is 1.5 dB lower than the emulation's and its level-driven
+part 1.5 dB higher. Not found yet what that is.
+
+**A fault found in the fitting on the way:** five rounds piled 2.5 dB onto the 20 Hz point of the response
+table (and 0.7 dB at 31 Hz). Down there the songs hold next to nothing and the engine's filter realises
+little of what the table says, so a correction changes nothing and is taken again. `verify_engine.py`'s
+check 4 showed it (−20.9 instead of −25.2 dB at 20–60 Hz). The response step is now tapered: nothing below
+25 Hz, everything from 40 Hz up; this profile's table below 60 Hz was put back to yesterday's.
+
+**Also seen, small:** the wobble between the channels at 3–12 Hz is 20–25% weaker in the emulation than on
+the tape (0.44 against 0.58 µs; the calibration has no rule for it); the tape has a little second-order
+distortion (−49.5 dB, 11 dB below the third) and the model none; two of the motor's lines near 36–40 Hz sit at
+slightly different frequencies in profile and tape.
