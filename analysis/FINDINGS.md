@@ -1382,7 +1382,7 @@ against −29.4 / −24.8 / −17.4 / −11.6 / −6.7; A6 −28.6 / −23.1 / �
 | A6 | +1.5 +0.5 −0.1 −0.5 −0.3 −0.2 −0.1 | +2.1 +1.0 +0.2 +0.2 +0.3 +0.1 −0.2 | +2.9 +1.5 +0.5 +0.4 +0.5 +0.2 −0.2 |
 | A5 | −2.2 −1.6 −1.5 0.0 −0.2 −0.3 +0.1 | +1.6 +1.3 +0.5 +0.2 +0.1 0.0 +0.1 | +1.8 +1.5 +0.5 +0.4 +0.2 +0.3 +0.3 |
 
-From 2 kHz up within 1 dB everywhere, mostly within 0.5. At 250 and 500 Hz the chrome emulations are 1 to
+From 2 kHz up within 1.2 dB everywhere, mostly within 0.5. At 250 and 500 Hz the chrome emulations are 1 to
 3 dB rougher than the tape in the loud passages; see the distortion below.
 
 **Distortion.**
@@ -1401,7 +1401,7 @@ From 2 kHz up within 1 dB everywhere, mostly within 0.5. At 250 and 500 Hz the c
   on the pre-emphasised waveform it makes more products than a tape that loses the same treble. A
   nonlinearity that follows the treble's envelope instead of its waveform would give the loss without
   most of the products. Not built. The chrome profiles now have no flat cubic and the stage as it was;
-  their excess at 250 and 500 Hz in loud passages fell from 3–5 dB to 1–3 dB.
+  their excess at 250 Hz in loud passages fell from 3–5 dB to 1.6–2.9 dB (at 500 Hz from 1.5–2.8 to 0.6–1.5 dB).
 - With the over-strong cubic gone the chrome profiles find a little gain noise (0.5% on one channel
   each); before, the cubic's intermodulation had supplied that modulation.
 
